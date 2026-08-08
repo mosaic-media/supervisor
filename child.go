@@ -45,7 +45,15 @@ type ChildSnapshot struct {
 	State    ChildState `json:"state"`
 	PID      int        `json:"pid,omitempty"`
 	Restarts int        `json:"restarts"`
-	LastErr  string     `json:"lastError,omitempty"`
+	// ConsecutiveFailures is the current run of failed starts, cleared once
+	// the child is ready. Distinct from Restarts, which only ever grows.
+	ConsecutiveFailures int `json:"consecutiveFailures"`
+	// Unrecoverable says the Supervisor has stopped expecting this child to
+	// come up. It is still retrying — the flag is what makes the condition
+	// reportable rather than something only a log reveals, and it is where
+	// ADR 0119's Issue will be raised once that exists.
+	Unrecoverable bool   `json:"unrecoverable,omitempty"`
+	LastErr       string `json:"lastError,omitempty"`
 }
 
 // ChildSpec describes a process the Supervisor owns.
@@ -57,10 +65,38 @@ type ChildSpec struct {
 	Command []string
 	// Env is added to the Supervisor's own environment.
 	Env []string
-	// ReadinessURL is polled to decide whether the child is ready. Empty
-	// means "running is ready", which is weaker but honest for a process
-	// with no probe.
+	// ReadinessURL is the child's own assessment of itself, and must answer
+	// 2xx/3xx. Empty means "running is ready", which is weaker but honest for
+	// a process with no probe.
 	ReadinessURL string
+	// ServingURL is the surface a *client* reaches, and is checked because a
+	// process's opinion of itself is not the question a Supervisor is asking.
+	// A component can report every subsystem loaded while the listener a user
+	// arrives at is unbound or unrouted, and only a probe of that listener
+	// tells them apart.
+	//
+	// It is satisfied by **any** HTTP response, not a 2xx. The surface worth
+	// probing is the RPC path clients actually use, which correctly refuses a
+	// GET — so demanding success would mean issuing a real RPC, and the one
+	// call reachable before authentication is rate-limited and does real work
+	// (ADR 0101). A probe that consumed a user's budget, or that reported a
+	// healthy Platform unready because it had spent its own, would cause the
+	// restarts it exists to prevent. An answer of any kind proves the listener
+	// is bound and the mux is routing, which is exactly the gap
+	// ReadinessURL leaves.
+	ServingURL string
+	// MaxConsecutiveFailures is how many starts may fail in a row before the
+	// Supervisor reports the child as one it cannot bring up. Zero means
+	// defaultMaxConsecutiveFailures.
+	MaxConsecutiveFailures int
+	// HealthyAfter is how long a child must stay up before the run of
+	// failures behind it is forgiven. Zero means defaultHealthyAfter.
+	//
+	// It is a duration rather than "became ready" because readiness arrives
+	// immediately for a child with no probe, and a child that starts and dies
+	// a second later would otherwise clear its own record every time — and so
+	// could never be reported as one that will not come up.
+	HealthyAfter time.Duration
 	// WorkingDir, when set, is the child's working directory. It matters for
 	// more than tidiness: the Platform resolves several paths relative to it,
 	// including the extension install directory (ADR 0081), so a child
@@ -80,6 +116,26 @@ type ChildSpec struct {
 // defaultStopGrace is deliberately generous. Waiting too long for a process
 // that has already finished costs nothing — the wait ends as soon as it exits.
 const defaultStopGrace = 15 * time.Second
+
+// defaultMaxConsecutiveFailures is when the Supervisor stops treating a child
+// as one that is about to come up.
+//
+// It does not stop trying. A household box whose database was briefly away
+// must heal itself rather than wait for somebody to notice, so retries
+// continue at the capped backoff. What changes is that the failure is stated
+// once and reported as a distinct condition, instead of scrolling past as an
+// identical line every minute — a Supervisor that never says "I cannot start
+// this" is one whose logs have to be read to learn it.
+const defaultMaxConsecutiveFailures = 5
+
+// defaultHealthyAfter is how long "it started and it is still here" takes to
+// become evidence.
+const defaultHealthyAfter = 30 * time.Second
+
+// maxBackoff caps the wait between restarts. A minute is short enough that a
+// database coming back is noticed promptly and long enough that a hopeless
+// child is not a busy loop.
+const maxBackoff = time.Minute
 
 // Manager runs the children and keeps them running.
 //
@@ -108,9 +164,19 @@ type child struct {
 	// starts-1, because the first start is not a restart — a freshly booted
 	// install reporting "1 restart" reads as a crash that never happened, and
 	// this number is one an operator judges stability by.
-	starts  int
-	lastErr string
-	cmd     *exec.Cmd
+	starts int
+	// consecutiveFailures resets the moment a child stays up long enough to
+	// count as healthy, so a process that crashes once an hour never inherits
+	// the count earned by a crash loop last week.
+	consecutiveFailures int
+	// unrecoverable records that consecutiveFailures passed the child's
+	// ceiling. Retries continue; this is what makes the condition sayable.
+	unrecoverable bool
+	// startedAt is when the current process was started, used to decide
+	// whether it has been up long enough to be believed.
+	startedAt time.Time
+	lastErr   string
+	cmd       *exec.Cmd
 }
 
 // NewManager builds a Manager. log may be nil.
@@ -201,9 +267,6 @@ func (m *Manager) Run(ctx context.Context) {
 // superviseOne is the restart loop for one child.
 func (m *Manager) superviseOne(ctx context.Context, name string) {
 	backoff := time.Second
-	const maxBackoff = time.Minute
-	// healthyFor is how long a child must stay up before its backoff resets.
-	const healthyFor = 30 * time.Second
 
 	for ctx.Err() == nil {
 		spec := m.specOf(name)
@@ -222,11 +285,21 @@ func (m *Manager) superviseOne(ctx context.Context, name string) {
 			return
 		}
 
-		m.setFailed(name, err)
-		if time.Since(started) >= healthyFor {
+		healthy := time.Since(started) >= healthyAfter(spec)
+		if healthy {
 			backoff = time.Second
 		}
-		m.log("child %s exited (%v); restarting in %s", name, err, backoff)
+		crossed := m.recordFailure(name, err, healthy, spec.MaxConsecutiveFailures)
+
+		switch {
+		case crossed:
+			// Said once, on the transition. Repeating it every minute is how
+			// the one line that matters becomes the one nobody reads.
+			m.log("child %s has failed %d times in a row and is not coming up (%v); "+
+				"still retrying every %s", name, m.failureCountOf(name), err, maxBackoff)
+		case !m.unrecoverableOf(name):
+			m.log("child %s exited (%v); restarting in %s", name, err, backoff)
+		}
 
 		select {
 		case <-ctx.Done():
@@ -264,6 +337,7 @@ func (m *Manager) runOnce(ctx context.Context, name string, spec ChildSpec) erro
 	m.mu.Lock()
 	c := m.children[name]
 	c.cmd, c.pid, c.state, c.lastErr = cmd, cmd.Process.Pid, ChildStarting, ""
+	c.startedAt = time.Now()
 	c.starts++
 	m.mu.Unlock()
 	m.log("child %s started (pid %d)", name, cmd.Process.Pid)
@@ -330,7 +404,7 @@ func (m *Manager) stop(cmd *exec.Cmd, grace time.Duration, exited <-chan struct{
 // starting when it stops answering.
 func (m *Manager) pollReadiness(ctx context.Context, name string) {
 	spec := m.specOf(name)
-	if spec.ReadinessURL == "" {
+	if spec.ReadinessURL == "" && spec.ServingURL == "" {
 		// No probe: running is the strongest claim available.
 		m.setState(name, ChildReady)
 		return
@@ -338,8 +412,14 @@ func (m *Manager) pollReadiness(ctx context.Context, name string) {
 	ticker := time.NewTicker(readinessInterval)
 	defer ticker.Stop()
 	for {
-		if m.checkOnce(ctx, spec.ReadinessURL) {
+		if m.ready(ctx, spec) {
 			m.setState(name, ChildReady)
+			// Ready *and* up for long enough is what lets a child stop being
+			// reported as one that will not come up. Readiness alone is not
+			// evidence: a child with no probe is ready the instant it starts,
+			// so clearing on that would let one that dies a second later
+			// forgive itself on every attempt.
+			m.clearFailuresIfSettled(name, healthyAfter(spec))
 		} else {
 			m.setState(name, ChildStarting)
 		}
@@ -351,17 +431,50 @@ func (m *Manager) pollReadiness(ctx context.Context, name string) {
 	}
 }
 
-func (m *Manager) checkOnce(ctx context.Context, target string) bool {
+// ready asks both questions, because they fail independently: a component can
+// declare itself healthy while the listener a client arrives at is unbound,
+// and a listener can accept while the component behind it has no database.
+// Whichever is configured must pass.
+func (m *Manager) ready(ctx context.Context, spec ChildSpec) bool {
+	if spec.ReadinessURL != "" && !m.probeSucceeds(ctx, spec.ReadinessURL) {
+		return false
+	}
+	if spec.ServingURL != "" && !m.probeAnswers(ctx, spec.ServingURL) {
+		return false
+	}
+	return true
+}
+
+// probeSucceeds requires a 2xx/3xx: the child's own assessment of itself.
+func (m *Manager) probeSucceeds(ctx context.Context, target string) bool {
+	resp, ok := m.probeOnce(ctx, target)
+	if !ok {
+		return false
+	}
+	return resp >= 200 && resp < 400
+}
+
+// probeAnswers requires only that something answered. See ChildSpec.ServingURL
+// for why a status code is the wrong question to ask of a client-facing RPC
+// path: the honest signal is that the listener is bound and the mux routed,
+// and a 405 from a POST-only method proves exactly that without invoking it.
+func (m *Manager) probeAnswers(ctx context.Context, target string) bool {
+	_, ok := m.probeOnce(ctx, target)
+	return ok
+}
+
+func (m *Manager) probeOnce(ctx context.Context, target string) (status int, answered bool) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
-		return false
+		return 0, false
 	}
 	resp, err := m.probe.Do(req)
 	if err != nil {
-		return false
+		return 0, false
 	}
 	defer resp.Body.Close()
-	return resp.StatusCode >= 200 && resp.StatusCode < 400
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return resp.StatusCode, true
 }
 
 func (m *Manager) specOf(name string) ChildSpec {
@@ -378,18 +491,76 @@ func (m *Manager) setState(name string, state ChildState) {
 	}
 }
 
-func (m *Manager) setFailed(name string, err error) {
+// recordFailure marks a child failed and returns whether this failure is the
+// one that crossed its ceiling — so the caller can say so exactly once.
+//
+// `healthy` reports that the child had stayed up long enough to count before
+// it died, which clears the run of failures: a process that crashes once an
+// hour is not the same condition as one that has never started.
+func (m *Manager) recordFailure(name string, err error, healthy bool, ceiling int) (crossed bool) {
+	if ceiling <= 0 {
+		ceiling = defaultMaxConsecutiveFailures
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	c, ok := m.children[name]
 	if !ok {
-		return
+		return false
 	}
 	c.state = ChildFailed
 	c.pid = 0
 	if err != nil {
 		c.lastErr = err.Error()
 	}
+	if healthy {
+		c.consecutiveFailures, c.unrecoverable = 1, false
+		return false
+	}
+	c.consecutiveFailures++
+	if c.consecutiveFailures >= ceiling && !c.unrecoverable {
+		c.unrecoverable = true
+		return true
+	}
+	return false
+}
+
+// clearFailuresIfSettled forgives a child's run of failures once it has been
+// up for `settled`, which is what makes "unrecoverable" a condition a child
+// can leave rather than a verdict it carries until the Supervisor restarts.
+func (m *Manager) clearFailuresIfSettled(name string, settled time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	c, ok := m.children[name]
+	if !ok || c.startedAt.IsZero() || time.Since(c.startedAt) < settled {
+		return
+	}
+	c.consecutiveFailures, c.unrecoverable = 0, false
+}
+
+// healthyAfter resolves a child's settling time.
+func healthyAfter(spec ChildSpec) time.Duration {
+	if spec.HealthyAfter > 0 {
+		return spec.HealthyAfter
+	}
+	return defaultHealthyAfter
+}
+
+func (m *Manager) failureCountOf(name string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if c, ok := m.children[name]; ok {
+		return c.consecutiveFailures
+	}
+	return 0
+}
+
+func (m *Manager) unrecoverableOf(name string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if c, ok := m.children[name]; ok {
+		return c.unrecoverable
+	}
+	return false
 }
 
 // Snapshot reports every child, in registration order so the output is stable.
@@ -404,11 +575,13 @@ func (m *Manager) Snapshot() Health {
 			restarts = 0
 		}
 		out = append(out, ChildSnapshot{
-			Name:     name,
-			State:    c.state,
-			PID:      c.pid,
-			Restarts: restarts,
-			LastErr:  c.lastErr,
+			Name:                name,
+			State:               c.state,
+			PID:                 c.pid,
+			Restarts:            restarts,
+			ConsecutiveFailures: c.consecutiveFailures,
+			Unrecoverable:       c.unrecoverable,
+			LastErr:             c.lastErr,
 		})
 	}
 	return Health{Children: out}

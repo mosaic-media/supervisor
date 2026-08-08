@@ -6,6 +6,7 @@ package supervisor
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -332,6 +333,192 @@ func TestAChildRunsInItsConfiguredWorkingDirectory(t *testing.T) {
 	if got != want {
 		t.Errorf("child ran in %q, want %q", got, want)
 	}
+}
+
+// A child that cannot start must eventually be reported as one that cannot
+// start. Retrying forever while saying nothing is how a dead box looks
+// identical to a slow one.
+func TestAChildThatNeverStartsIsReportedUnrecoverable(t *testing.T) {
+	m := NewManager("boot-1", nil)
+	if err := m.Add(ChildSpec{
+		Name:                   "doomed",
+		Command:                []string{"sh", "-c", "exit 1"},
+		MaxConsecutiveFailures: 3,
+	}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go m.Run(ctx)
+
+	waitUntil(t, "the child to be given up on", func() bool {
+		return snapshotOf(m, "doomed").Unrecoverable
+	})
+
+	s := snapshotOf(m, "doomed")
+	if s.ConsecutiveFailures < 3 {
+		t.Errorf("reported unrecoverable after %d failures, want at least 3", s.ConsecutiveFailures)
+	}
+	if s.LastErr == "" {
+		t.Error("unrecoverable without saying why")
+	}
+	if s.State != ChildFailed {
+		t.Errorf("state %q, want %q", s.State, ChildFailed)
+	}
+}
+
+// Retries do not stop when the ceiling is crossed. A household box whose
+// database was briefly away has to heal itself rather than wait to be noticed.
+func TestAnUnrecoverableChildIsStillRetried(t *testing.T) {
+	m := NewManager("boot-1", nil)
+	if err := m.Add(ChildSpec{
+		Name:                   "doomed",
+		Command:                []string{"sh", "-c", "exit 1"},
+		MaxConsecutiveFailures: 2,
+	}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go m.Run(ctx)
+
+	waitUntil(t, "the child to be given up on", func() bool {
+		return snapshotOf(m, "doomed").Unrecoverable
+	})
+	at := snapshotOf(m, "doomed").Restarts
+
+	waitUntil(t, "another attempt after the ceiling", func() bool {
+		return snapshotOf(m, "doomed").Restarts > at
+	})
+}
+
+// And the verdict is one a child can leave: a run of failures that ends in a
+// child which comes up and stays up must clear, or a transient outage brands
+// the process for the life of the Supervisor.
+func TestBecomingReadyClearsTheFailureRun(t *testing.T) {
+	ready := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ready.Close()
+
+	// Fails twice using a marker file, then runs.
+	marker := t.TempDir() + "/attempts"
+	script := "printf x >> " + marker + "; " +
+		"if [ $(wc -c < " + marker + ") -le 2 ]; then exit 1; fi; sleep 30"
+
+	m := NewManager("boot-1", nil)
+	if err := m.Add(ChildSpec{
+		Name:                   "flaky",
+		Command:                []string{"sh", "-c", script},
+		MaxConsecutiveFailures: 2,
+		ReadinessURL:           ready.URL,
+		HealthyAfter:           500 * time.Millisecond,
+	}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go m.Run(ctx)
+
+	waitUntil(t, "the child to be given up on", func() bool {
+		return snapshotOf(m, "flaky").Unrecoverable
+	})
+	waitUntil(t, "the child to recover", func() bool {
+		s := snapshotOf(m, "flaky")
+		return s.State == ChildReady && !s.Unrecoverable
+	})
+
+	if got := snapshotOf(m, "flaky").ConsecutiveFailures; got != 0 {
+		t.Errorf("failure run left at %d after recovery, want 0", got)
+	}
+}
+
+// A child that starts and dies immediately must still reach its ceiling. It
+// did not: readiness arrives at once for a child with no probe, and clearing
+// the failure run on that alone let every attempt forgive the one before it,
+// so the count never rose and the condition was unreportable forever.
+func TestAChildThatDiesImmediatelyCannotForgiveItself(t *testing.T) {
+	m := NewManager("boot-1", nil)
+	if err := m.Add(ChildSpec{
+		Name:                   "doomed",
+		Command:                []string{"sh", "-c", "exit 1"},
+		MaxConsecutiveFailures: 2,
+		// No readiness or serving probe at all, which is the case that broke:
+		// "running is ready" made every start look like a recovery.
+	}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go m.Run(ctx)
+
+	waitUntil(t, "the child to be given up on", func() bool {
+		return snapshotOf(m, "doomed").Unrecoverable
+	})
+}
+
+// Readiness asks two independent questions. A component declaring itself
+// healthy while the listener a client arrives at is unbound is exactly the
+// case the second one exists for, and the first cannot see it.
+func TestSelfReportedHealthIsNotEnoughToBeReady(t *testing.T) {
+	selfReport := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer selfReport.Close()
+
+	m := NewManager("boot-1", nil)
+	if err := m.Add(ChildSpec{
+		Name:         "platform",
+		Command:      []string{"sleep", "30"},
+		ReadinessURL: selfReport.URL,
+		// Nothing is listening here: the client-facing surface is down.
+		ServingURL: "http://127.0.0.1:1/mosaic.auth.v1.AuthService/Bootstrap",
+	}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go m.Run(ctx)
+
+	waitUntil(t, "the child to start", func() bool { return snapshotOf(m, "platform").PID != 0 })
+	// Give the probe several ticks to be wrong if it is going to be.
+	time.Sleep(3 * readinessInterval)
+
+	if s := snapshotOf(m, "platform"); s.State == ChildReady {
+		t.Error("reported ready on the component's own say-so while its client-facing listener was down")
+	}
+}
+
+// The client-facing probe must accept a refusal. Its natural target is a
+// POST-only RPC path, which answers a GET with 405 — demanding success would
+// mean issuing a real RPC against a rate-limited pre-auth surface.
+func TestTheServingProbeAcceptsAnyAnswerFromTheListener(t *testing.T) {
+	serving := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}))
+	defer serving.Close()
+
+	m := NewManager("boot-1", nil)
+	if err := m.Add(ChildSpec{
+		Name:       "platform",
+		Command:    []string{"sleep", "30"},
+		ServingURL: serving.URL + "/mosaic.auth.v1.AuthService/Bootstrap",
+	}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go m.Run(ctx)
+
+	waitUntil(t, "the child to be ready on a 405", func() bool {
+		return snapshotOf(m, "platform").State == ChildReady
+	})
 }
 
 func TestAChildNeedsANameAndCannotBeRegisteredTwice(t *testing.T) {

@@ -50,6 +50,12 @@ const (
 // defaultPlatformHandoff is the Platform's MOSAIC_HEALTH_ADDR default.
 const defaultPlatformHandoff = "http://127.0.0.1:8080"
 
+// platformServingPath is the client-facing path probed to prove the API
+// listener is bound and routing. It names a real Connect method because the
+// point is to exercise the mux a client uses, and the same `/mosaic.` prefix
+// the front door routes on.
+const platformServingPath = "/mosaic.auth.v1.AuthService/Bootstrap"
+
 func main() {
 	if err := run(); err != nil {
 		log.Printf("mosaic-supervisor: %v", err)
@@ -88,6 +94,17 @@ func run() error {
 		// front door must not send a client to a Platform that cannot serve
 		// it yet, so readiness is the question worth asking.
 		ReadinessURL: platformHandoffURL + "/readyz",
+		// And the surface a client actually arrives at, on the API port
+		// rather than the handoff one, because those are two listeners and
+		// only one of them serves users. `/readyz` is the Platform's opinion
+		// of itself and cannot report that the client-facing listener failed
+		// to bind or that its mux is unrouted.
+		//
+		// A GET at a Connect method is refused with 405 before the handler
+		// runs, which is why this path is safe to poll: it invokes no RPC, so
+		// it neither does the work Bootstrap does nor spends the pre-auth
+		// rate-limit budget it shares with every real client (ADR 0101).
+		ServingURL: cfg.PlatformURL + platformServingPath,
 		// Longer than the default. The Platform may be mid-transaction or
 		// draining a playback session, and a SIGKILL there is the unclean
 		// stop that costs a recovery on the next boot.
