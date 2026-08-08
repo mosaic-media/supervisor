@@ -36,7 +36,14 @@ import (
 const (
 	platformCommandEnv = "MOSAIC_SUPERVISOR_PLATFORM_COMMAND"
 	shellCommandEnv    = "MOSAIC_SUPERVISOR_SHELL_COMMAND"
+	// platformHandoffEnv points at the Platform's handoff listener. It is a
+	// separate setting from the API URL because the two are different
+	// listeners on different ports, and only the API is ever proxied.
+	platformHandoffEnv = "MOSAIC_SUPERVISOR_PLATFORM_HANDOFF_URL"
 )
+
+// defaultPlatformHandoff is the Platform's MOSAIC_HEALTH_ADDR default.
+const defaultPlatformHandoff = "http://127.0.0.1:8080"
 
 func main() {
 	if err := run(); err != nil {
@@ -54,6 +61,11 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	platformHandoffURL := strings.TrimRight(os.Getenv(platformHandoffEnv), "/")
+	if platformHandoffURL == "" {
+		platformHandoffURL = defaultPlatformHandoff
+	}
+
 	manager := supervisor.NewManager(cfg.BootID, log.Printf)
 	if err := manager.Add(supervisor.ChildSpec{
 		Name:    "platform",
@@ -61,7 +73,12 @@ func run() error {
 		// The Platform's own handoff listener, which is the private channel
 		// between these two processes and is deliberately not routed through
 		// the front door.
-		ReadinessURL: "http://127.0.0.1:8080/health/live",
+		//
+		// /readyz, not /healthz: liveness says the process is answering, and
+		// the Platform answers that while it is still running migrations. The
+		// front door must not send a client to a Platform that cannot serve
+		// it yet, so readiness is the question worth asking.
+		ReadinessURL: platformHandoffURL + "/readyz",
 	}); err != nil {
 		return err
 	}

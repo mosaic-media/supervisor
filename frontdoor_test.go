@@ -86,7 +86,10 @@ func TestThePlatformsHandoffListenerIsNotPublished(t *testing.T) {
 	platform, shell := upstreams(t)
 	fd := frontDoor(t, platform.URL, shell.URL, nil)
 
-	for _, path := range []string{"/health", "/health/live", "/health/ready", "/generation"} {
+	// The real set, as registered in internal/transport/health/handoff.go.
+	// Written from that file rather than invented, because a made-up path
+	// proves only that the router ignores made-up paths.
+	for _, path := range []string{"/metadata", "/readyz", "/healthz", "/migrations", "/config"} {
 		if got := route(t, fd, path).Header.Get("X-Upstream"); got == "platform" {
 			t.Errorf("%s reached the Platform through the front door", path)
 		}

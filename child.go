@@ -81,12 +81,16 @@ type Manager struct {
 }
 
 type child struct {
-	spec     ChildSpec
-	state    ChildState
-	pid      int
-	restarts int
-	lastErr  string
-	cmd      *exec.Cmd
+	spec  ChildSpec
+	state ChildState
+	pid   int
+	// starts counts every start including the first. Restarts are reported as
+	// starts-1, because the first start is not a restart — a freshly booted
+	// install reporting "1 restart" reads as a crash that never happened, and
+	// this number is one an operator judges stability by.
+	starts  int
+	lastErr string
+	cmd     *exec.Cmd
 }
 
 // NewManager builds a Manager. log may be nil.
@@ -196,9 +200,7 @@ func (m *Manager) runOnce(ctx context.Context, name string, spec ChildSpec) erro
 	m.mu.Lock()
 	c := m.children[name]
 	c.cmd, c.pid, c.state, c.lastErr = cmd, cmd.Process.Pid, ChildStarting, ""
-	if c.restarts >= 0 {
-		c.restarts++
-	}
+	c.starts++
 	m.mu.Unlock()
 	m.log("child %s started (pid %d)", name, cmd.Process.Pid)
 
@@ -324,11 +326,15 @@ func (m *Manager) Snapshot() Health {
 	out := make([]ChildSnapshot, 0, len(m.order))
 	for _, name := range m.order {
 		c := m.children[name]
+		restarts := c.starts - 1
+		if restarts < 0 {
+			restarts = 0
+		}
 		out = append(out, ChildSnapshot{
 			Name:     name,
 			State:    c.state,
 			PID:      c.pid,
-			Restarts: c.restarts,
+			Restarts: restarts,
 			LastErr:  c.lastErr,
 		})
 	}
