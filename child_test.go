@@ -6,6 +6,9 @@ package supervisor
 import (
 	"context"
 	"os"
+	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -140,6 +143,164 @@ func TestAnExternallyManagedChildIsReportedNotStarted(t *testing.T) {
 	}
 	if s.Restarts != 0 {
 		t.Errorf("an externally managed child reported %d restarts", s.Restarts)
+	}
+}
+
+// Children are registered dependency-first, so they must stop in reverse:
+// the dependent goes down before the thing it depends on. Getting this
+// backwards leaves the Shell serving a page whose first call cannot be
+// answered.
+func TestChildrenStopInReverseRegistrationOrder(t *testing.T) {
+	var mu sync.Mutex
+	var stopped []string
+
+	m := NewManager("boot-1", func(format string, args ...any) {
+		// The Manager announces each stop as it begins it, which is the only
+		// ordering signal available from outside.
+		if !strings.HasPrefix(format, "stopping child ") {
+			return
+		}
+		mu.Lock()
+		stopped = append(stopped, args[0].(string))
+		mu.Unlock()
+	})
+
+	for _, name := range []string{"platform", "shell"} {
+		if err := m.Add(ChildSpec{
+			Name:      name,
+			Command:   []string{"sleep", "30"},
+			StopGrace: time.Second,
+		}); err != nil {
+			t.Fatalf("Add: %v", err)
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); m.Run(ctx) }()
+
+	waitUntil(t, "both children to start", func() bool {
+		return snapshotOf(m, "platform").PID != 0 && snapshotOf(m, "shell").PID != 0
+	})
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+		t.Fatal("Run did not return after cancellation")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(stopped) != 2 || stopped[0] != "shell" || stopped[1] != "platform" {
+		t.Errorf("stopped in order %v, want [shell platform]", stopped)
+	}
+}
+
+// Each child's stop is its own rather than a share of one global deadline,
+// and a child that exits promptly must not wait out its grace.
+func TestAStoppedChildIsWaitedForRatherThanTimedOut(t *testing.T) {
+	m := NewManager("boot-1", nil)
+	for _, name := range []string{"platform", "shell"} {
+		if err := m.Add(ChildSpec{
+			Name:      name,
+			Command:   []string{"sleep", "30"},
+			StopGrace: 10 * time.Second,
+		}); err != nil {
+			t.Fatalf("Add: %v", err)
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); m.Run(ctx) }()
+
+	waitUntil(t, "both children to start", func() bool {
+		return snapshotOf(m, "platform").PID != 0 && snapshotOf(m, "shell").PID != 0
+	})
+
+	// `sleep` dies on SIGTERM immediately, so a correct implementation returns
+	// in well under the two children's combined 20s of grace. A version that
+	// waited out the grace regardless would blow this deadline.
+	start := time.Now()
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(15 * time.Second):
+		t.Fatal("Run did not return; the grace is being waited out rather than the process")
+	}
+	if elapsed := time.Since(start); elapsed > 10*time.Second {
+		t.Errorf("shutdown took %s — the stop is not observing the process exiting", elapsed)
+	}
+}
+
+// A child that ignores SIGTERM has to be killed, and the grace is what bounds
+// how long one can hold up a shutdown.
+func TestAChildIgnoringSIGTERMIsKilledAfterItsGrace(t *testing.T) {
+	m := NewManager("boot-1", nil)
+	if err := m.Add(ChildSpec{
+		Name: "stubborn",
+		// trap '' TERM ignores the signal entirely.
+		Command:   []string{"sh", "-c", "trap '' TERM; sleep 30"},
+		StopGrace: 2 * time.Second,
+	}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); m.Run(ctx) }()
+
+	waitUntil(t, "the child to start", func() bool { return snapshotOf(m, "stubborn").PID != 0 })
+
+	start := time.Now()
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+		t.Fatal("a child ignoring SIGTERM was never killed")
+	}
+	if elapsed := time.Since(start); elapsed < 2*time.Second {
+		t.Errorf("killed after %s, before its 2s grace elapsed", elapsed)
+	}
+}
+
+// The working directory is not cosmetic: the Platform resolves its extension
+// install directory relative to it (ADR 0081), so a child started from the
+// wrong place finds none of the modules a user installed.
+func TestAChildRunsInItsConfiguredWorkingDirectory(t *testing.T) {
+	dir := t.TempDir()
+	out := t.TempDir() + "/cwd"
+
+	m := NewManager("boot-1", nil)
+	if err := m.Add(ChildSpec{
+		Name:       "recorder",
+		Command:    []string{"sh", "-c", "pwd > " + out + "; sleep 30"},
+		WorkingDir: dir,
+	}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go m.Run(ctx)
+
+	waitUntil(t, "the child to record its directory", func() bool {
+		data, err := os.ReadFile(out)
+		return err == nil && len(data) > 0
+	})
+
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	got, want := strings.TrimSpace(string(data)), dir
+	// TempDir can sit behind a symlink; compare resolved forms.
+	if resolved, err := filepath.EvalSymlinks(want); err == nil {
+		want = resolved
+	}
+	if got != want {
+		t.Errorf("child ran in %q, want %q", got, want)
 	}
 }
 

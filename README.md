@@ -21,10 +21,21 @@ full history via `git subtree split`.
 ## What it does
 
 - **Runs child processes.** Starts the Platform and the Shell, restarts either
-  on exponential backoff, hands both a shared boot id
+  on exponential backoff, and hands both a shared boot id
   ([ADR 0060](https://github.com/mosaic-media/architecture/blob/main/docs/adr/0060-the-supervisor-observes-independently.md))
-  so their logs stitch into one timeline, and stops a process group cleanly
-  (`SIGTERM`, then `SIGKILL` after a grace period).
+  so all three processes' records stitch into one timeline.
+- **Stops them in order, and waits.** Children are registered dependency-first
+  and stopped in reverse — the Shell before the Platform it is useless
+  without — each with its own grace period, and each is fully stopped before
+  the next is asked to. The signal goes to the process *group*, so a child's
+  own children (an extension module, an `ffmpeg`) go with it rather than being
+  orphaned holding the port the replacement wants. A child that ignores
+  `SIGTERM` is killed once its grace elapses.
+- **Attributes their output.** Three processes share one terminal, so each
+  child's console lines are prefixed with its name. This is safe precisely
+  because it is the console stream: the Platform's structured records go to
+  its file sink, and a line is emitted whole under one lock so two children
+  cannot interleave within one.
 - **Terminates TLS on one port.** A self-signed certificate is generated in
   memory for each boot when no real one is configured, covering `localhost`
   and the host's own addresses — nothing is written to disk, and every boot
@@ -74,17 +85,27 @@ That is the whole gate — gofmt, `go vet`, `go build`, `go test` — in a
 container, nothing on the host. Append `bash` for a shell in the same
 environment.
 
-To see it front a real Platform and Shell, use `platform`'s
-`docker-compose.supervisor.yml` overlay:
+To see it own a real Platform and Shell, use `platform`'s
+`docker-compose.supervisor.yml` overlay — one process tree, as a deployed
+install has it:
 
 ```bash
 cd ../platform
 docker compose -f docker-compose.dev.yml -f docker-compose.supervisor.yml \
-  up postgres platform supervisor
+  up postgres supervisor
 ```
 
 then `https://localhost:8443`. The certificate is self-signed and the browser
-will warn — that warning is the accurate description of it.
+will warn — that warning is the accurate description of it. Note that the
+`platform` service is deliberately not in that command: the Supervisor starts
+the Platform itself, which is the only shape where the boot id is honoured
+end to end, since a process compose started mints its own and can adopt
+nobody's.
+
+**Do not run it under `go run`.** The toolchain becomes the process being
+signalled, the Supervisor never sees `SIGTERM`, and every child is killed by
+whatever is above it rather than stopped in order. The overlay above execs a
+built binary for exactly this reason.
 
 ## License
 

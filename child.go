@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -60,9 +61,25 @@ type ChildSpec struct {
 	// means "running is ready", which is weaker but honest for a process
 	// with no probe.
 	ReadinessURL string
-	// WorkingDir, when set, is the child's working directory.
+	// WorkingDir, when set, is the child's working directory. It matters for
+	// more than tidiness: the Platform resolves several paths relative to it,
+	// including the extension install directory (ADR 0081), so a child
+	// started from the wrong directory finds none of its installed modules.
 	WorkingDir string
+	// StopGrace is how long this child gets between SIGTERM and SIGKILL.
+	// Zero means defaultStopGrace.
+	//
+	// It is per child because the right answer differs by an order of
+	// magnitude: the Shell serves static files and has nothing to finish,
+	// while the Platform may be mid-transaction or draining a playback
+	// session, and killing it early turns a planned shutdown into the kind
+	// of unclean stop that costs a recovery on the next boot.
+	StopGrace time.Duration
 }
+
+// defaultStopGrace is deliberately generous. Waiting too long for a process
+// that has already finished costs nothing — the wait ends as soon as it exits.
+const defaultStopGrace = 15 * time.Second
 
 // Manager runs the children and keeps them running.
 //
@@ -77,6 +94,10 @@ type Manager struct {
 	bootID   string
 	probe    *http.Client
 	log      func(string, ...any)
+	// out and outMu are the children's console destination and the lock that
+	// keeps one child's line from interleaving with another's mid-way.
+	out   io.Writer
+	outMu sync.Mutex
 }
 
 type child struct {
@@ -102,6 +123,7 @@ func NewManager(bootID string, log func(string, ...any)) *Manager {
 		bootID:   bootID,
 		probe:    &http.Client{Timeout: readinessTimeout},
 		log:      log,
+		out:      os.Stdout,
 	}
 }
 
@@ -121,21 +143,49 @@ func (m *Manager) Add(spec ChildSpec) error {
 }
 
 // Run supervises every registered child until ctx is cancelled, then stops
-// them and returns. It blocks.
+// them **in reverse registration order** and returns. It blocks.
+//
+// The order is the point. Children are registered dependency-first — the
+// Platform, then the Shell that is useless without it — so stopping in reverse
+// takes the dependent down first, which is the conventional rule and the one
+// that avoids the Shell serving a page whose very first call cannot be
+// answered. Each child is fully stopped before the next is asked to, so a
+// child's stop grace is its own rather than a share of one global deadline.
+//
+// The cost is that shutdown is now the sum of the children's stops rather than
+// the longest of them. With two children, one of which serves static files,
+// that is a second or two — worth paying for a deterministic order.
 func (m *Manager) Run(ctx context.Context) {
-	var wg sync.WaitGroup
 	m.mu.Lock()
 	names := append([]string(nil), m.order...)
 	m.mu.Unlock()
 
-	for _, name := range names {
-		wg.Add(1)
+	// Each child gets its own cancellation so they can be stopped one at a
+	// time. Deriving them from context.Background() rather than from ctx is
+	// what makes that possible: a child derived from ctx would be cancelled
+	// the instant ctx was, and every "ordered" stop would in fact be
+	// simultaneous.
+	stops := make([]context.CancelFunc, len(names))
+	dones := make([]chan struct{}, len(names))
+
+	for i, name := range names {
+		childCtx, cancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		stops[i], dones[i] = cancel, done
+
 		go func(name string) {
-			defer wg.Done()
-			m.superviseOne(ctx, name)
+			defer close(done)
+			m.superviseOne(childCtx, name)
 		}(name)
 	}
-	wg.Wait()
+
+	<-ctx.Done()
+
+	for i := len(names) - 1; i >= 0; i-- {
+		m.log("stopping child %s", names[i])
+		stops[i]()
+		<-dones[i]
+	}
 }
 
 // superviseOne is the restart loop for one child.
@@ -183,8 +233,13 @@ func (m *Manager) superviseOne(ctx context.Context, name string) {
 func (m *Manager) runOnce(ctx context.Context, name string, spec ChildSpec) error {
 	cmd := exec.Command(spec.Command[0], spec.Command[1:]...)
 	cmd.Dir = spec.WorkingDir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	// Attributed, because three processes share one terminal. Both streams go
+	// to the same destination through the same lock, so a child's stderr line
+	// cannot land inside its own stdout line.
+	stdout := newPrefixWriter(m.out, &m.outMu, name)
+	stderr := newPrefixWriter(m.out, &m.outMu, name)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	// The boot id reaches every child, which is what stitches the three
 	// processes' records into one timeline (ADR 0060).
 	cmd.Env = append(append(os.Environ(), "MOSAIC_BOOT_ID="+m.bootID), spec.Env...)
@@ -208,14 +263,30 @@ func (m *Manager) runOnce(ctx context.Context, name string, spec ChildSpec) erro
 	go m.pollReadiness(probeCtx, name)
 
 	// Stop the child when the Supervisor is asked to stop.
+	//
+	// `done` is buffered and carries the exit error; `exited` is closed
+	// alongside it purely as a broadcast, so stop can wait for the process
+	// without consuming the value runOnce still needs to return.
 	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
+	exited := make(chan struct{})
+	go func() {
+		done <- cmd.Wait()
+		close(exited)
+	}()
+
+	// A crashing process's last line often has no trailing newline. Flushing
+	// on the way out is what keeps it from being swallowed — which would lose
+	// exactly the line that says why the child died.
+	defer func() {
+		stdout.Flush()
+		stderr.Flush()
+	}()
 
 	select {
 	case err := <-done:
 		return err
 	case <-ctx.Done():
-		m.stop(cmd)
+		m.stop(cmd, spec.StopGrace, exited)
 		<-done
 		return ctx.Err()
 	}
@@ -224,32 +295,25 @@ func (m *Manager) runOnce(ctx context.Context, name string, spec ChildSpec) erro
 // stop asks politely, then insists. A Platform mid-transaction deserves the
 // chance to finish it; a Platform that ignores SIGTERM must not be able to
 // block an activation forever.
-func (m *Manager) stop(cmd *exec.Cmd) {
+//
+// The signal goes to the process *group* (the negative pid), which is why
+// runOnce sets Setpgid: a child that spawned its own children — an extension
+// module's process, an ffmpeg — would otherwise leave them orphaned and still
+// holding the port the replacement is about to want.
+func (m *Manager) stop(cmd *exec.Cmd, grace time.Duration, exited <-chan struct{}) {
 	if cmd.Process == nil {
 		return
 	}
+	if grace <= 0 {
+		grace = defaultStopGrace
+	}
 	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
 	select {
-	case <-time.After(15 * time.Second):
+	case <-exited:
+	case <-time.After(grace):
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-	case <-waitFor(cmd):
+		<-exited
 	}
-}
-
-// waitFor closes its channel once the process has gone, polling because
-// cmd.Wait is already owned by the caller.
-func waitFor(cmd *exec.Cmd) <-chan struct{} {
-	ch := make(chan struct{})
-	go func() {
-		defer close(ch)
-		for range 150 {
-			if cmd.ProcessState != nil {
-				return
-			}
-			time.Sleep(100 * time.Millisecond)
-		}
-	}()
-	return ch
 }
 
 // pollReadiness moves a child to ready once its probe answers, and back to

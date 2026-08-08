@@ -39,6 +39,12 @@ const (
 	// separate setting from the API URL because the two are different
 	// listeners on different ports, and only the API is ever proxied.
 	platformHandoffEnv = "MOSAIC_SUPERVISOR_PLATFORM_HANDOFF_URL"
+	// The children's working directories. The Platform needs one: it resolves
+	// its extension install directory relative to the working directory
+	// (ADR 0081), so started from the Supervisor's own directory it would
+	// find none of the modules a user installed.
+	platformDirEnv = "MOSAIC_SUPERVISOR_PLATFORM_DIR"
+	shellDirEnv    = "MOSAIC_SUPERVISOR_SHELL_DIR"
 )
 
 // defaultPlatformHandoff is the Platform's MOSAIC_HEALTH_ADDR default.
@@ -65,10 +71,14 @@ func run() error {
 		platformHandoffURL = defaultPlatformHandoff
 	}
 
+	// Registration order is dependency order, and Run stops in reverse — the
+	// Shell first, then the Platform. Adding a third child means deciding
+	// where in this sequence it belongs.
 	manager := supervisor.NewManager(cfg.BootID, log.Printf)
 	if err := manager.Add(supervisor.ChildSpec{
-		Name:    "platform",
-		Command: fields(os.Getenv(platformCommandEnv)),
+		Name:       "platform",
+		Command:    fields(os.Getenv(platformCommandEnv)),
+		WorkingDir: os.Getenv(platformDirEnv),
 		// The Platform's own handoff listener, which is the private channel
 		// between these two processes and is deliberately not routed through
 		// the front door.
@@ -78,18 +88,36 @@ func run() error {
 		// front door must not send a client to a Platform that cannot serve
 		// it yet, so readiness is the question worth asking.
 		ReadinessURL: platformHandoffURL + "/readyz",
+		// Longer than the default. The Platform may be mid-transaction or
+		// draining a playback session, and a SIGKILL there is the unclean
+		// stop that costs a recovery on the next boot.
+		StopGrace: 45 * time.Second,
 	}); err != nil {
 		return err
 	}
 	if err := manager.Add(supervisor.ChildSpec{
 		Name:         "shell",
 		Command:      fields(os.Getenv(shellCommandEnv)),
+		WorkingDir:   os.Getenv(shellDirEnv),
 		ReadinessURL: cfg.ShellURL + "/healthz",
+		// It serves static files out of its own binary. There is nothing in
+		// flight to finish, so waiting longer would only lengthen every
+		// shutdown for no gain.
+		StopGrace: 5 * time.Second,
 	}); err != nil {
 		return err
 	}
 
-	go manager.Run(ctx)
+	// Run owns the children until ctx is cancelled and then stops them in
+	// order. The shutdown path below **waits for this to finish** — without
+	// that wait the process would exit the moment the front door closed,
+	// leaving every child to be killed by whatever is above the Supervisor
+	// instead of stopped by it, which is precisely the job it exists to do.
+	managerDone := make(chan struct{})
+	go func() {
+		defer close(managerDone)
+		manager.Run(ctx)
+	}()
 
 	frontDoor, err := supervisor.NewFrontDoor(cfg, manager.Snapshot)
 	if err != nil {
@@ -138,12 +166,34 @@ func run() error {
 	case err := <-errs:
 		return err
 	case <-ctx.Done():
-		log.Printf("mosaic-supervisor: shutting down")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		defer cancel()
-		return server.Shutdown(shutdownCtx)
 	}
+
+	log.Printf("mosaic-supervisor: shutting down")
+
+	// The front door closes first, so nothing new arrives for children that
+	// are about to go away. Draining is bounded: a held-open push lane
+	// (ADR 0041) never completes on its own, so waiting for it would mean
+	// never shutting down.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), frontDoorDrain)
+	defer cancel()
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		// Worth saying and not worth stopping for: the children still have to
+		// be stopped, and returning here would skip that.
+		log.Printf("mosaic-supervisor: front door did not drain cleanly: %v", err)
+	}
+
+	// Then the children, in reverse registration order, each with its own
+	// stop grace. This is the wait that makes the Supervisor the thing that
+	// stops them.
+	<-managerDone
+	log.Printf("mosaic-supervisor: stopped")
+	return nil
 }
+
+// frontDoorDrain bounds how long in-flight requests get once shutdown has
+// begun. It is shorter than the Platform's stop grace on purpose: the Platform
+// should still be alive to answer whatever is draining here.
+const frontDoorDrain = 20 * time.Second
 
 // fields splits a command string on whitespace. This is deliberately not a
 // shell: a command needing quoting or a pipe belongs in a script the
