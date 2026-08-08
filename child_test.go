@@ -5,6 +5,7 @@ package supervisor
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -146,11 +147,12 @@ func TestAnExternallyManagedChildIsReportedNotStarted(t *testing.T) {
 	}
 }
 
-// Children are registered dependency-first, so they must stop in reverse:
-// the dependent goes down before the thing it depends on. Getting this
-// backwards leaves the Shell serving a page whose first call cannot be
-// answered.
-func TestChildrenStopInReverseRegistrationOrder(t *testing.T) {
+// Children stop in registration order — most expendable first, the interface
+// last — so ADR 0005's ladder is walked down rather than skipped. Stopping the
+// Shell first would drain nothing (clients reach the Platform through the front
+// door, not through the Shell) and would replace its offline screen with the
+// holding page while the better one was still available.
+func TestChildrenStopInRegistrationOrder(t *testing.T) {
 	var mu sync.Mutex
 	var stopped []string
 
@@ -192,8 +194,36 @@ func TestChildrenStopInReverseRegistrationOrder(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(stopped) != 2 || stopped[0] != "shell" || stopped[1] != "platform" {
-		t.Errorf("stopped in order %v, want [shell platform]", stopped)
+	if len(stopped) != 2 || stopped[0] != "platform" || stopped[1] != "shell" {
+		t.Errorf("stopped in order %v, want [platform shell] — the interface goes last", stopped)
+	}
+}
+
+// The ordering above only means something if the front door is still serving
+// while it happens. This pins the rung it exists to preserve: with the
+// Platform gone and the Shell still up, the front door must answer a
+// navigation from the Shell rather than falling through to the holding page.
+func TestTheShellStillAnswersWhileThePlatformIsGone(t *testing.T) {
+	_, shell := upstreams(t)
+	// A Platform that has already stopped, and a Shell that has not.
+	fd := frontDoor(t, "http://127.0.0.1:1", shell.URL, nil)
+
+	resp := route(t, fd, "/library")
+	if got := resp.Header.Get("X-Upstream"); got != "shell" {
+		t.Fatalf("a navigation went to %q, want the Shell", got)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("want 200 from the Shell, got %d", resp.StatusCode)
+	}
+
+	// And the Platform call it then makes gets the interpretable error the
+	// Shell's offline screen renders — not the holding page.
+	api := route(t, fd, "/mosaic.auth.v1.AuthService/Bootstrap")
+	if api.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("want 503 for the Platform call, got %d", api.StatusCode)
+	}
+	if ct := api.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Errorf("want a machine-readable error the client can render, got %q", ct)
 	}
 }
 

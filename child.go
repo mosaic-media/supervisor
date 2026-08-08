@@ -143,18 +143,28 @@ func (m *Manager) Add(spec ChildSpec) error {
 }
 
 // Run supervises every registered child until ctx is cancelled, then stops
-// them **in reverse registration order** and returns. It blocks.
+// them **in registration order** and returns. It blocks.
 //
-// The order is the point. Children are registered dependency-first — the
-// Platform, then the Shell that is useless without it — so stopping in reverse
-// takes the dependent down first, which is the conventional rule and the one
-// that avoids the Shell serving a page whose very first call cannot be
-// answered. Each child is fully stopped before the next is asked to, so a
-// child's stop grace is its own rather than a share of one global deadline.
+// The order is the point, and it is deliberately *not* the conventional
+// stop-dependents-first. That rule exists to drain traffic through the
+// dependent before the thing it depends on goes away, and it does not apply
+// here: clients reach the Platform through the front door directly, never
+// through the Shell, which serves static files and has nothing in flight. So
+// stopping the Shell first would drain nothing — it would only destroy the
+// best interface still standing.
 //
-// The cost is that shutdown is now the sum of the children's stops rather than
-// the longest of them. With two children, one of which serves static files,
-// that is a second or two — worth paying for a deterministic order.
+// Register children in the order they should be given up, which means most
+// expendable first and the interface last. ADR 0005 has the Supervisor use the
+// richest available presentation layer, and a shutdown is where that ladder is
+// walked rather than skipped: the Platform goes, and the Shell — still up —
+// renders its offline state; then the Shell goes and the holding page answers;
+// then the front door closes. Taking the Shell first would jump straight to
+// the holding page while a far better screen was still available.
+//
+// Each child is fully stopped before the next is asked to, so a child's stop
+// grace is its own rather than a share of one global deadline. The cost is
+// that shutdown is the sum of the children's stops rather than the longest of
+// them, which is what buys the ordering.
 func (m *Manager) Run(ctx context.Context) {
 	m.mu.Lock()
 	names := append([]string(nil), m.order...)
@@ -181,7 +191,7 @@ func (m *Manager) Run(ctx context.Context) {
 
 	<-ctx.Done()
 
-	for i := len(names) - 1; i >= 0; i-- {
+	for i := range names {
 		m.log("stopping child %s", names[i])
 		stops[i]()
 		<-dones[i]

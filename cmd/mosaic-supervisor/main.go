@@ -170,30 +170,36 @@ func run() error {
 
 	log.Printf("mosaic-supervisor: shutting down")
 
-	// The front door closes first, so nothing new arrives for children that
-	// are about to go away. Draining is bounded: a held-open push lane
+	// The children go first, in registration order — the Platform, then the
+	// Shell — and **the front door stays open while they do**. That ordering
+	// is only worth anything if something is still answering to show it:
+	// closing the front door first would make every rung of ADR 0005's ladder
+	// invisible, since a client would get a refused connection either way.
+	//
+	// So a shutdown walks the ladder down rather than falling off it. The
+	// Platform stops and the Shell, still up, renders its offline state; the
+	// Shell stops and the holding page answers; only then does the door
+	// close. It is also what ADR 0033's live handover needs, where the
+	// Platform is replaced under a Shell that never went away.
+	<-managerDone
+
+	// The door last. Draining is bounded because a held-open push lane
 	// (ADR 0041) never completes on its own, so waiting for it would mean
 	// never shutting down.
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), frontDoorDrain)
 	defer cancel()
 	if err := server.Shutdown(shutdownCtx); err != nil {
-		// Worth saying and not worth stopping for: the children still have to
-		// be stopped, and returning here would skip that.
 		log.Printf("mosaic-supervisor: front door did not drain cleanly: %v", err)
 	}
 
-	// Then the children, in reverse registration order, each with its own
-	// stop grace. This is the wait that makes the Supervisor the thing that
-	// stops them.
-	<-managerDone
 	log.Printf("mosaic-supervisor: stopped")
 	return nil
 }
 
-// frontDoorDrain bounds how long in-flight requests get once shutdown has
-// begun. It is shorter than the Platform's stop grace on purpose: the Platform
-// should still be alive to answer whatever is draining here.
-const frontDoorDrain = 20 * time.Second
+// frontDoorDrain bounds how long the door takes to close once both children
+// are already gone. Everything still connected at that point is being served
+// the holding page, so this is short.
+const frontDoorDrain = 10 * time.Second
 
 // fields splits a command string on whitespace. This is deliberately not a
 // shell: a command needing quoting or a pipe belongs in a script the

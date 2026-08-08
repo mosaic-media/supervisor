@@ -24,13 +24,22 @@ full history via `git subtree split`.
   on exponential backoff, and hands both a shared boot id
   ([ADR 0060](https://github.com/mosaic-media/architecture/blob/main/docs/adr/0060-the-supervisor-observes-independently.md))
   so all three processes' records stitch into one timeline.
-- **Stops them in order, and waits.** Children are registered dependency-first
-  and stopped in reverse — the Shell before the Platform it is useless
-  without — each with its own grace period, and each is fully stopped before
-  the next is asked to. The signal goes to the process *group*, so a child's
-  own children (an extension module, an `ffmpeg`) go with it rather than being
-  orphaned holding the port the replacement wants. A child that ignores
-  `SIGTERM` is killed once its grace elapses.
+- **Stops them in order, and keeps answering while it does.** Children stop in
+  registration order — the Platform first, the interface last — and the front
+  door stays open until both are down. That walks the degradation ladder
+  instead of falling off it: the Platform goes and the Shell, still up,
+  renders its offline state; the Shell goes and the holding page answers; only
+  then does the door close. Each child is fully stopped before the next is
+  asked to, with its own grace period. The signal goes to the process *group*,
+  so a child's own children (an extension module, an `ffmpeg`) go with it
+  rather than being orphaned holding the port the replacement wants. A child
+  that ignores `SIGTERM` is killed once its grace elapses.
+
+  Note that this is *not* the conventional stop-dependents-first. That rule
+  exists to drain traffic through the dependent, and it does not apply here:
+  clients reach the Platform through the front door directly, never through
+  the Shell, so stopping the Shell first would drain nothing and would only
+  discard the best screen still standing.
 - **Attributes their output.** Three processes share one terminal, so each
   child's console lines are prefixed with its name. This is safe precisely
   because it is the console stream: the Platform's structured records go to
