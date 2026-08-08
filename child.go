@@ -178,6 +178,12 @@ type child struct {
 	startedAt time.Time
 	lastErr   string
 	cmd       *exec.Cmd
+	// holds counts the operations that own this child. While any do, the
+	// watchdog does not restart it — see Hold.
+	holds int
+	// restart carries a deliberate stop to the running process. Buffered by
+	// one so a Restart that arrives between runs is not lost.
+	restart chan struct{}
 }
 
 // NewManager builds a Manager. log may be nil.
@@ -203,7 +209,7 @@ func (m *Manager) Add(spec ChildSpec) error {
 	if _, exists := m.children[spec.Name]; exists {
 		return fmt.Errorf("child %q is already registered", spec.Name)
 	}
-	m.children[spec.Name] = &child{spec: spec, state: ChildStopped}
+	m.children[spec.Name] = &child{spec: spec, state: ChildStopped, restart: make(chan struct{}, 1)}
 	m.order = append(m.order, spec.Name)
 	return nil
 }
@@ -285,6 +291,15 @@ func (m *Manager) superviseOne(ctx context.Context, name string) {
 			return
 		}
 
+		// A stop the Supervisor asked for is not a failure: no count, no
+		// backoff, and straight back up. Counting it would have a Generation
+		// activation look like a crashing Platform.
+		if errors.Is(err, errRestartRequested) {
+			backoff = time.Second
+			m.waitWhileHeld(ctx, name)
+			continue
+		}
+
 		healthy := time.Since(started) >= healthyAfter(spec)
 		if healthy {
 			backoff = time.Second
@@ -309,6 +324,12 @@ func (m *Manager) superviseOne(ctx context.Context, name string) {
 		if backoff *= 2; backoff > maxBackoff {
 			backoff = maxBackoff
 		}
+
+		// A child that died while an operation owned it stays down until that
+		// operation lets go. The failure above is still recorded first, so the
+		// health probe reports what happened rather than a pid that no longer
+		// exists — the hold delays the *restart*, not the accounting.
+		m.waitWhileHeld(ctx, name)
 	}
 }
 
@@ -366,9 +387,20 @@ func (m *Manager) runOnce(ctx context.Context, name string, spec ChildSpec) erro
 		stderr.Flush()
 	}()
 
+	m.mu.Lock()
+	restart := c.restart
+	m.mu.Unlock()
+
 	select {
 	case err := <-done:
 		return err
+	case <-restart:
+		// Asked for, so it is stopped the same polite way a shutdown stops it
+		// and reported distinctly, because a planned stop must not count
+		// against the child.
+		m.stop(cmd, spec.StopGrace, exited)
+		<-done
+		return errRestartRequested
 	case <-ctx.Done():
 		m.stop(cmd, spec.StopGrace, exited)
 		<-done
