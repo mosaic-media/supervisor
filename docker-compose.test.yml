@@ -1,0 +1,45 @@
+# The Supervisor's test container.
+#
+#   docker compose -f docker-compose.test.yml run --rm test
+#
+# Nothing is built or run on the host. This repository needs the least of any
+# Mosaic repository to prove itself: no database, no ffmpeg, no browser — the
+# whole point of importing nothing but the standard library
+# (TestSupervisorImportsNothingButTheStandardLibrary) is that `go build ./...`
+# really is the whole dependency graph. The uniformity is still worth keeping:
+# a rule with an exception in one repository is a rule nobody applies
+# reliably in the other twelve.
+#
+# For a shell in the same environment:
+#
+#   docker compose -f docker-compose.test.yml run --rm test bash
+name: mosaic-supervisor-test
+
+services:
+  test:
+    image: golang:1.25-bookworm
+    working_dir: /src/supervisor
+    volumes:
+      - .:/src/supervisor
+      - mosaic-supervisor-gomod:/go/pkg/mod
+      - mosaic-supervisor-gobuild:/root/.cache/go-build
+    command:
+      - bash
+      - -eu
+      - -o
+      - pipefail
+      - -c
+      - |
+        gofmt -l . > /tmp/unformatted
+        if [ -s /tmp/unformatted ]; then
+          echo "These files are not gofmt-clean:" >&2
+          cat /tmp/unformatted >&2
+          exit 1
+        fi
+        go vet ./...
+        go build ./...
+        go test ./...
+
+volumes:
+  mosaic-supervisor-gomod:
+  mosaic-supervisor-gobuild:

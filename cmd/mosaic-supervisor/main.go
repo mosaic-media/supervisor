@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // SPDX-FileCopyrightText: 2026 the Mosaic authors
-// Linking exception: see LICENSE-EXCEPTION.
 
 // Command mosaic-supervisor is Mosaic's host-level manager and single front
 // door (ADR 0004, ADR 0005).

@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // SPDX-FileCopyrightText: 2026 the Mosaic authors
-// Linking exception: see LICENSE-EXCEPTION.
 
 package supervisor_test
 
@@ -16,17 +15,14 @@ import (
 
 // The Supervisor must import nothing but the standard library.
 //
-// Two reasons, and the second is why this test exists rather than a comment.
-//
 // It must be able to run when the Platform cannot — that is the whole of
 // ADR 0005's degradation ladder — so a compile-time dependency on the Platform
 // would tie the process that stays up to the one that fell over, and would
-// make upgrading either mean upgrading both.
-//
-// And this package currently lives *inside* the platform repository because
-// the Supervisor has no repository of its own yet. That is a parking spot, not
-// a decision. An import of the surrounding module would resolve perfectly well
-// today and would silently make the extraction a rewrite instead of a `git mv`.
+// make upgrading either mean upgrading both. This module was extracted from
+// the platform repository, where it was parked before this one existed; the
+// boundary held during that move (a `git subtree split` plus a push, no
+// import to rewrite) and this test is what makes sure it keeps holding now
+// that the two are separate repositories with separate release cycles.
 func TestSupervisorImportsNothingButTheStandardLibrary(t *testing.T) {
 	root := moduleRoot(t)
 	fset := token.NewFileSet()
