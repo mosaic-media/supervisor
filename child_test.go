@@ -7,6 +7,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,6 +28,25 @@ func waitUntil(t *testing.T, why string, want func() bool) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for %s", why)
+}
+
+// probeFor builds a Probe for a plain http:// URL, splitting it into the
+// endpoint and the path the way configuration does.
+func probeFor(t *testing.T, raw string) *Probe {
+	t.Helper()
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		t.Fatalf("parsing %q: %v", raw, err)
+	}
+	endpoint, err := ParseEndpoint(parsed.Scheme + "://" + parsed.Host)
+	if err != nil {
+		t.Fatalf("endpoint for %q: %v", raw, err)
+	}
+	path := parsed.Path
+	if path == "" {
+		path = "/"
+	}
+	return NewProbe(endpoint, path)
 }
 
 func snapshotOf(m *Manager, name string) ChildSnapshot {
@@ -413,7 +433,7 @@ func TestBecomingReadyClearsTheFailureRun(t *testing.T) {
 		Name:                   "flaky",
 		Command:                []string{"sh", "-c", script},
 		MaxConsecutiveFailures: 2,
-		ReadinessURL:           ready.URL,
+		Readiness:              probeFor(t, ready.URL),
 		HealthyAfter:           500 * time.Millisecond,
 	}); err != nil {
 		t.Fatalf("Add: %v", err)
@@ -472,11 +492,11 @@ func TestSelfReportedHealthIsNotEnoughToBeReady(t *testing.T) {
 
 	m := NewManager("boot-1", nil)
 	if err := m.Add(ChildSpec{
-		Name:         "platform",
-		Command:      []string{"sleep", "30"},
-		ReadinessURL: selfReport.URL,
+		Name:      "platform",
+		Command:   []string{"sleep", "30"},
+		Readiness: probeFor(t, selfReport.URL),
 		// Nothing is listening here: the client-facing surface is down.
-		ServingURL: "http://127.0.0.1:1/mosaic.auth.v1.AuthService/Bootstrap",
+		Serving: probeFor(t, "http://127.0.0.1:1/mosaic.auth.v1.AuthService/Bootstrap"),
 	}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -505,9 +525,9 @@ func TestTheServingProbeAcceptsAnyAnswerFromTheListener(t *testing.T) {
 
 	m := NewManager("boot-1", nil)
 	if err := m.Add(ChildSpec{
-		Name:       "platform",
-		Command:    []string{"sleep", "30"},
-		ServingURL: serving.URL + "/mosaic.auth.v1.AuthService/Bootstrap",
+		Name:    "platform",
+		Command: []string{"sleep", "30"},
+		Serving: probeFor(t, serving.URL+"/mosaic.auth.v1.AuthService/Bootstrap"),
 	}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}

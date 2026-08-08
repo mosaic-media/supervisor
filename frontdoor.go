@@ -6,10 +6,8 @@ package supervisor
 import (
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 	"net/http/httputil"
-	"net/url"
 	"time"
 )
 
@@ -64,23 +62,26 @@ type Health struct {
 // NewFrontDoor builds the router. health may be nil when nothing is
 // supervising children, in which case the probe reports the Supervisor alone.
 func NewFrontDoor(cfg Config, health func() Health) (*FrontDoor, error) {
-	platformURL, err := url.Parse(cfg.PlatformURL)
-	if err != nil {
-		return nil, fmt.Errorf("platform URL: %w", err)
-	}
-	shellURL, err := url.Parse(cfg.ShellURL)
-	if err != nil {
-		return nil, fmt.Errorf("shell URL: %w", err)
-	}
-
 	fd := &FrontDoor{cfg: cfg, started: time.Now(), health: health}
-	fd.platform = fd.proxyTo(platformURL, fd.platformUnavailable)
-	fd.shell = fd.proxyTo(shellURL, fd.shellUnavailable)
+
+	platform, err := fd.proxyTo(cfg.Platform, fd.platformUnavailable)
+	if err != nil {
+		return nil, fmt.Errorf("platform upstream: %w", err)
+	}
+	shell, err := fd.proxyTo(cfg.Shell, fd.shellUnavailable)
+	if err != nil {
+		return nil, fmt.Errorf("shell upstream: %w", err)
+	}
+	fd.platform, fd.shell = platform, shell
 	return fd, nil
 }
 
 // proxyTo builds a reverse proxy with the settings that matter here.
-func (f *FrontDoor) proxyTo(target *url.URL, onError func(http.ResponseWriter, *http.Request, error)) *httputil.ReverseProxy {
+func (f *FrontDoor) proxyTo(up Endpoint, onError func(http.ResponseWriter, *http.Request, error)) (*httputil.ReverseProxy, error) {
+	target, err := up.ProxyTarget()
+	if err != nil {
+		return nil, err
+	}
 	proxy := httputil.NewSingleHostReverseProxy(target)
 
 	// Immediate flush. The session transport has a server-push lane
@@ -101,17 +102,11 @@ func (f *FrontDoor) proxyTo(target *url.URL, onError func(http.ResponseWriter, *
 		}
 	}
 
-	proxy.Transport = &http.Transport{
-		DialContext:           (&net.Dialer{Timeout: upstreamDialTimeout}).DialContext,
-		MaxIdleConnsPerHost:   64,
-		IdleConnTimeout:       90 * time.Second,
-		ExpectContinueTimeout: time.Second,
-		// No response header timeout: the push lane holds a response open
-		// indefinitely by design, and a timeout here would sever it on a
-		// schedule.
-	}
+	// The dialer, not the URL, is what decides where this goes: for a socket
+	// the URL's host is a placeholder and only this reaches the real address.
+	proxy.Transport = up.Transport()
 	proxy.ErrorHandler = onError
-	return proxy
+	return proxy, nil
 }
 
 func forwardedProto(r *http.Request) string {

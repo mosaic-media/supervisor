@@ -23,8 +23,28 @@ func TestDefaultsAreUsable(t *testing.T) {
 	if cfg.ListenAddr != defaultListenAddr {
 		t.Errorf("want %q, got %q", defaultListenAddr, cfg.ListenAddr)
 	}
-	if cfg.PlatformURL != defaultPlatformURL || cfg.ShellURL != defaultShellURL {
-		t.Errorf("unexpected upstreams: %+v", cfg)
+	// Sockets by default, so an install nobody configured is the one with no
+	// second door (ADR 0120).
+	for _, up := range []struct {
+		name string
+		e    Endpoint
+		want string
+	}{
+		{"platform", cfg.Platform, defaultRuntimeDir + "/" + PlatformSocketName},
+		{"handoff", cfg.PlatformHandoff, defaultRuntimeDir + "/" + PlatformHandoffSocketName},
+		{"shell", cfg.Shell, defaultRuntimeDir + "/" + ShellSocketName},
+	} {
+		if !up.e.IsUnix() {
+			t.Errorf("%s defaulted to TCP at %q — the default must not be reachable around the front door", up.name, up.e.Address())
+		}
+		if up.e.Address() != up.want {
+			t.Errorf("%s socket at %q, want %q", up.name, up.e.Address(), up.want)
+		}
+	}
+	// The Platform's two surfaces are separate sockets: collapsing them would
+	// publish the handoff channel to anything that could reach the API.
+	if cfg.Platform.Address() == cfg.PlatformHandoff.Address() {
+		t.Error("the client API and the handoff channel share one socket")
 	}
 	// The Supervisor is the process that mints the boot id its children adopt.
 	if cfg.BootID == "" {
@@ -50,7 +70,13 @@ func TestHalfACertificatePairIsRefused(t *testing.T) {
 }
 
 func TestUpstreamsAreValidatedAtStartup(t *testing.T) {
-	for _, raw := range []string{"127.0.0.1:8081", "/platform", "ftp://x", "http://"} {
+	for _, raw := range []string{
+		"127.0.0.1:8081",  // no scheme
+		"/platform.sock",  // a bare path, without the unix:// that names it
+		"unix://relative", // a socket path that is not absolute
+		"ftp://x",
+		"http://",
+	} {
 		if _, err := LoadConfig(env(map[string]string{platformURLEnv: raw})); err == nil {
 			t.Errorf("%q was accepted; an unusable upstream must fail at startup, not as a 502 later", raw)
 		}
@@ -62,10 +88,39 @@ func TestUpstreamTrailingSlashIsTrimmed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfig: %v", err)
 	}
-	// A readiness URL is built by concatenation; a trailing slash yields
+	// A probe URL is built by concatenation; a trailing slash yields
 	// "//healthz".
-	if cfg.ShellURL != "http://127.0.0.1:9000" {
-		t.Errorf("want the trailing slash trimmed, got %q", cfg.ShellURL)
+	if got := cfg.Shell.URL("/healthz"); got != "http://127.0.0.1:9000/healthz" {
+		t.Errorf("probe URL %q — the trailing slash survived", got)
+	}
+}
+
+// TCP remains available, because the plain dev stack runs the children as
+// separate containers and nothing can share a socket with them. It is a
+// deliberate override rather than the default (ADR 0120).
+func TestTCPIsStillAvailableAsAnOverride(t *testing.T) {
+	cfg, err := LoadConfig(env(map[string]string{platformURLEnv: "http://127.0.0.1:8081"}))
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.Platform.IsUnix() {
+		t.Error("an explicit http:// upstream was turned into a socket")
+	}
+	// And the others still default to sockets: one override is not a mode.
+	if !cfg.Shell.IsUnix() {
+		t.Error("overriding the Platform changed the Shell's transport too")
+	}
+}
+
+// The runtime directory is where the sockets live, so it must be settable for
+// a deployment that cannot write to /run.
+func TestTheRuntimeDirectoryMovesTheSockets(t *testing.T) {
+	cfg, err := LoadConfig(env(map[string]string{runtimeDirEnv: "/var/lib/mosaic/run"}))
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if got, want := cfg.Platform.Address(), "/var/lib/mosaic/run/"+PlatformSocketName; got != want {
+		t.Errorf("socket at %q, want %q", got, want)
 	}
 }
 

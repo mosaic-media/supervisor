@@ -65,11 +65,11 @@ type ChildSpec struct {
 	Command []string
 	// Env is added to the Supervisor's own environment.
 	Env []string
-	// ReadinessURL is the child's own assessment of itself, and must answer
-	// 2xx/3xx. Empty means "running is ready", which is weaker but honest for
-	// a process with no probe.
-	ReadinessURL string
-	// ServingURL is the surface a *client* reaches, and is checked because a
+	// Readiness is the child's own assessment of itself, and must answer
+	// 2xx/3xx. Nil means "running is ready", which is weaker but honest for a
+	// process with no probe.
+	Readiness *Probe
+	// Serving is the surface a *client* reaches, and is checked because a
 	// process's opinion of itself is not the question a Supervisor is asking.
 	// A component can report every subsystem loaded while the listener a user
 	// arrives at is unbound or unrouted, and only a probe of that listener
@@ -82,9 +82,11 @@ type ChildSpec struct {
 	// (ADR 0101). A probe that consumed a user's budget, or that reported a
 	// healthy Platform unready because it had spent its own, would cause the
 	// restarts it exists to prevent. An answer of any kind proves the listener
-	// is bound and the mux is routing, which is exactly the gap
-	// ReadinessURL leaves.
-	ServingURL string
+	// is bound and the mux is routing, which is exactly the gap Readiness
+	// leaves. It is a separate Probe rather than another path because the two
+	// are different listeners — and, under ADR 0120, different sockets, so
+	// they need different dialers and are not interchangeable.
+	Serving *Probe
 	// MaxConsecutiveFailures is how many starts may fail in a row before the
 	// Supervisor reports the child as one it cannot bring up. Zero means
 	// defaultMaxConsecutiveFailures.
@@ -148,7 +150,6 @@ type Manager struct {
 	children map[string]*child
 	order    []string
 	bootID   string
-	probe    *http.Client
 	log      func(string, ...any)
 	// out and outMu are the children's console destination and the lock that
 	// keeps one child's line from interleaving with another's mid-way.
@@ -187,7 +188,6 @@ func NewManager(bootID string, log func(string, ...any)) *Manager {
 	return &Manager{
 		children: map[string]*child{},
 		bootID:   bootID,
-		probe:    &http.Client{Timeout: readinessTimeout},
 		log:      log,
 		out:      os.Stdout,
 	}
@@ -404,7 +404,7 @@ func (m *Manager) stop(cmd *exec.Cmd, grace time.Duration, exited <-chan struct{
 // starting when it stops answering.
 func (m *Manager) pollReadiness(ctx context.Context, name string) {
 	spec := m.specOf(name)
-	if spec.ReadinessURL == "" && spec.ServingURL == "" {
+	if spec.Readiness == nil && spec.Serving == nil {
 		// No probe: running is the strongest claim available.
 		m.setState(name, ChildReady)
 		return
@@ -436,39 +436,31 @@ func (m *Manager) pollReadiness(ctx context.Context, name string) {
 // and a listener can accept while the component behind it has no database.
 // Whichever is configured must pass.
 func (m *Manager) ready(ctx context.Context, spec ChildSpec) bool {
-	if spec.ReadinessURL != "" && !m.probeSucceeds(ctx, spec.ReadinessURL) {
-		return false
+	if spec.Readiness != nil {
+		status, answered := spec.Readiness.ask(ctx)
+		// The child's own assessment, so success is the question.
+		if !answered || status < 200 || status >= 400 {
+			return false
+		}
 	}
-	if spec.ServingURL != "" && !m.probeAnswers(ctx, spec.ServingURL) {
-		return false
+	if spec.Serving != nil {
+		// Only that something answered. See ChildSpec.Serving: the honest
+		// signal from a client-facing RPC path is that the listener is bound
+		// and the mux routed, which a 405 from a POST-only method proves
+		// without invoking it.
+		if _, answered := spec.Serving.ask(ctx); !answered {
+			return false
+		}
 	}
 	return true
 }
 
-// probeSucceeds requires a 2xx/3xx: the child's own assessment of itself.
-func (m *Manager) probeSucceeds(ctx context.Context, target string) bool {
-	resp, ok := m.probeOnce(ctx, target)
-	if !ok {
-		return false
-	}
-	return resp >= 200 && resp < 400
-}
-
-// probeAnswers requires only that something answered. See ChildSpec.ServingURL
-// for why a status code is the wrong question to ask of a client-facing RPC
-// path: the honest signal is that the listener is bound and the mux routed,
-// and a 405 from a POST-only method proves exactly that without invoking it.
-func (m *Manager) probeAnswers(ctx context.Context, target string) bool {
-	_, ok := m.probeOnce(ctx, target)
-	return ok
-}
-
-func (m *Manager) probeOnce(ctx context.Context, target string) (status int, answered bool) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+func (p *Probe) ask(ctx context.Context) (status int, answered bool) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.url, nil)
 	if err != nil {
 		return 0, false
 	}
-	resp, err := m.probe.Do(req)
+	resp, err := p.client.Do(req)
 	if err != nil {
 		return 0, false
 	}

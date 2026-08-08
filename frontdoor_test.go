@@ -37,14 +37,23 @@ func upstreams(t *testing.T) (platform, shell *httptest.Server) {
 func frontDoor(t *testing.T, platformURL, shellURL string, health func() Health) *FrontDoor {
 	t.Helper()
 	fd, err := NewFrontDoor(Config{
-		PlatformURL: platformURL,
-		ShellURL:    shellURL,
-		BootID:      "boot-1",
+		Platform: mustEndpoint(t, platformURL),
+		Shell:    mustEndpoint(t, shellURL),
+		BootID:   "boot-1",
 	}, health)
 	if err != nil {
 		t.Fatalf("NewFrontDoor: %v", err)
 	}
 	return fd
+}
+
+func mustEndpoint(t *testing.T, raw string) Endpoint {
+	t.Helper()
+	e, err := ParseEndpoint(raw)
+	if err != nil {
+		t.Fatalf("ParseEndpoint(%q): %v", raw, err)
+	}
+	return e
 }
 
 func route(t *testing.T, fd *FrontDoor, path string) *http.Response {

@@ -14,8 +14,8 @@ package supervisor
 
 import (
 	"fmt"
-	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -23,22 +23,36 @@ import (
 // Environment variable names, read in one place so the configuration surface
 // is greppable.
 const (
-	listenAddrEnv  = "MOSAIC_SUPERVISOR_ADDR"
-	certFileEnv    = "MOSAIC_SUPERVISOR_TLS_CERT"
-	keyFileEnv     = "MOSAIC_SUPERVISOR_TLS_KEY"
-	platformURLEnv = "MOSAIC_SUPERVISOR_PLATFORM_URL"
-	shellURLEnv    = "MOSAIC_SUPERVISOR_SHELL_URL"
-	bootIDEnv      = "MOSAIC_BOOT_ID"
+	listenAddrEnv = "MOSAIC_SUPERVISOR_ADDR"
+	certFileEnv   = "MOSAIC_SUPERVISOR_TLS_CERT"
+	keyFileEnv    = "MOSAIC_SUPERVISOR_TLS_KEY"
+	runtimeDirEnv = "MOSAIC_RUNTIME_DIR"
+	// The upstreams. Each accepts a unix:// or an http:// URL, and each
+	// defaults to a socket under the runtime directory.
+	platformURLEnv     = "MOSAIC_SUPERVISOR_PLATFORM_URL"
+	platformHandoffEnv = "MOSAIC_SUPERVISOR_PLATFORM_HANDOFF_URL"
+	shellURLEnv        = "MOSAIC_SUPERVISOR_SHELL_URL"
+	bootIDEnv          = "MOSAIC_BOOT_ID"
 )
 
 const (
 	defaultListenAddr = ":8443"
-	// The two processes the Supervisor fronts, on loopback. They are not
-	// published to the host in a deployed install: the whole point of a
-	// single front door is that these are the only way in and it is not one
-	// of them.
-	defaultPlatformURL = "http://127.0.0.1:8081"
-	defaultShellURL    = "http://127.0.0.1:8090"
+	// defaultRuntimeDir holds the children's sockets. /run is the conventional
+	// home for an artefact that should not survive a reboot, and a socket left
+	// behind by a killed process is exactly that.
+	defaultRuntimeDir = "/run/mosaic"
+)
+
+// Socket file names within the runtime directory.
+//
+// The Platform's two surfaces are separate sockets because they are separate
+// audiences: collapsing them would publish the handoff channel — Generation
+// and migration state, deliberately outside the policy gate — to anything that
+// could reach the client API (ADR 0120).
+const (
+	PlatformSocketName        = "platform.sock"
+	PlatformHandoffSocketName = "platform-handoff.sock"
+	ShellSocketName           = "shell.sock"
 )
 
 // Config is what an operator can set.
@@ -52,9 +66,15 @@ type Config struct {
 	// a LAN, and honest about what it is.
 	CertFile string
 	KeyFile  string
-	// PlatformURL and ShellURL are the upstreams.
-	PlatformURL string
-	ShellURL    string
+	// RuntimeDir holds the children's sockets. The Supervisor creates it,
+	// because it is the process that starts before the others.
+	RuntimeDir string
+	// Platform, PlatformHandoff and Shell are the upstreams. Each is a Unix
+	// socket in the shipped shape and may be TCP for a development stack that
+	// runs the children as separate containers (ADR 0120).
+	Platform        Endpoint
+	PlatformHandoff Endpoint
+	Shell           Endpoint
 	// BootID names one start of this process. The Supervisor is the process
 	// that *mints* it and hands it to its children (ADR 0060), so unlike the
 	// Platform and the Shell it adopts an inbound one only when something is
@@ -67,21 +87,17 @@ type Config struct {
 // points at the wrong layer.
 func LoadConfig(getenv func(string) string) (Config, error) {
 	cfg := Config{
-		ListenAddr:  strings.TrimSpace(getenv(listenAddrEnv)),
-		CertFile:    strings.TrimSpace(getenv(certFileEnv)),
-		KeyFile:     strings.TrimSpace(getenv(keyFileEnv)),
-		PlatformURL: strings.TrimSpace(getenv(platformURLEnv)),
-		ShellURL:    strings.TrimSpace(getenv(shellURLEnv)),
-		BootID:      strings.TrimSpace(getenv(bootIDEnv)),
+		ListenAddr: strings.TrimSpace(getenv(listenAddrEnv)),
+		CertFile:   strings.TrimSpace(getenv(certFileEnv)),
+		KeyFile:    strings.TrimSpace(getenv(keyFileEnv)),
+		RuntimeDir: strings.TrimSpace(getenv(runtimeDirEnv)),
+		BootID:     strings.TrimSpace(getenv(bootIDEnv)),
 	}
 	if cfg.ListenAddr == "" {
 		cfg.ListenAddr = defaultListenAddr
 	}
-	if cfg.PlatformURL == "" {
-		cfg.PlatformURL = defaultPlatformURL
-	}
-	if cfg.ShellURL == "" {
-		cfg.ShellURL = defaultShellURL
+	if cfg.RuntimeDir == "" {
+		cfg.RuntimeDir = defaultRuntimeDir
 	}
 	if cfg.BootID == "" {
 		cfg.BootID = NewID()
@@ -94,14 +110,37 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 	if (cfg.CertFile == "") != (cfg.KeyFile == "") {
 		return Config{}, fmt.Errorf("%s and %s must be set together", certFileEnv, keyFileEnv)
 	}
-	for name, raw := range map[string]string{platformURLEnv: cfg.PlatformURL, shellURLEnv: cfg.ShellURL} {
-		if err := validateUpstream(raw); err != nil {
-			return Config{}, fmt.Errorf("%s: %w", name, err)
-		}
+
+	// Each upstream defaults to a socket in the runtime directory and can be
+	// overridden with a TCP URL. The default is the shipped shape, so a
+	// deployment that has not thought about it gets the one with no second
+	// door rather than the one that is easiest to reach.
+	upstreams := []struct {
+		env      string
+		fallback string
+		into     *Endpoint
+	}{
+		{platformURLEnv, socketURL(cfg.RuntimeDir, PlatformSocketName), &cfg.Platform},
+		{platformHandoffEnv, socketURL(cfg.RuntimeDir, PlatformHandoffSocketName), &cfg.PlatformHandoff},
+		{shellURLEnv, socketURL(cfg.RuntimeDir, ShellSocketName), &cfg.Shell},
 	}
-	cfg.PlatformURL = strings.TrimRight(cfg.PlatformURL, "/")
-	cfg.ShellURL = strings.TrimRight(cfg.ShellURL, "/")
+	for _, u := range upstreams {
+		raw := strings.TrimSpace(getenv(u.env))
+		if raw == "" {
+			raw = u.fallback
+		}
+		endpoint, err := ParseEndpoint(strings.TrimRight(raw, "/"))
+		if err != nil {
+			return Config{}, fmt.Errorf("%s: %w", u.env, err)
+		}
+		*u.into = endpoint
+	}
 	return cfg, nil
+}
+
+// socketURL names a socket inside the runtime directory.
+func socketURL(dir, name string) string {
+	return "unix://" + filepath.Join(dir, name)
 }
 
 // LoadConfigFromEnv is LoadConfig against the process environment.
@@ -110,16 +149,20 @@ func LoadConfigFromEnv() (Config, error) { return LoadConfig(os.Getenv) }
 // TLSConfigured reports whether an operator supplied a certificate.
 func (c Config) TLSConfigured() bool { return c.CertFile != "" && c.KeyFile != "" }
 
-func validateUpstream(raw string) error {
-	parsed, err := url.Parse(raw)
-	if err != nil {
-		return fmt.Errorf("not a URL: %w", err)
+// PrepareRuntimeDir creates the directory the children's sockets live in.
+//
+// The Supervisor owns it because it is the process that starts before the
+// others. `0700` is the access control ADR 0120 relies on: a socket's own mode
+// governs connecting to it, but a directory nobody else may traverse is what
+// stops another user on the box enumerating what is there.
+func PrepareRuntimeDir(dir string) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("creating the runtime directory %s: %w", dir, err)
 	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return fmt.Errorf("must be an http:// or https:// URL, got %q", raw)
-	}
-	if parsed.Host == "" {
-		return fmt.Errorf("must include a host, got %q", raw)
+	// MkdirAll leaves an existing directory's mode alone, and one created by
+	// an earlier version — or by a distribution package — may be wider.
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return fmt.Errorf("securing the runtime directory %s: %w", dir, err)
 	}
 	return nil
 }

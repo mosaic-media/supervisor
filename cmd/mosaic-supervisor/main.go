@@ -35,10 +35,6 @@ import (
 const (
 	platformCommandEnv = "MOSAIC_SUPERVISOR_PLATFORM_COMMAND"
 	shellCommandEnv    = "MOSAIC_SUPERVISOR_SHELL_COMMAND"
-	// platformHandoffEnv points at the Platform's handoff listener. It is a
-	// separate setting from the API URL because the two are different
-	// listeners on different ports, and only the API is ever proxied.
-	platformHandoffEnv = "MOSAIC_SUPERVISOR_PLATFORM_HANDOFF_URL"
 	// The children's working directories. The Platform needs one: it resolves
 	// its extension install directory relative to the working directory
 	// (ADR 0081), so started from the Supervisor's own directory it would
@@ -47,8 +43,15 @@ const (
 	shellDirEnv    = "MOSAIC_SUPERVISOR_SHELL_DIR"
 )
 
-// defaultPlatformHandoff is the Platform's MOSAIC_HEALTH_ADDR default.
-const defaultPlatformHandoff = "http://127.0.0.1:8080"
+// Where the children are told to bind. The Supervisor decides this rather than
+// each child being configured separately, because the two halves have to agree
+// and a Supervisor dialling a socket its child was never told to create is a
+// failure with no good error message.
+const (
+	platformAddrEnv        = "MOSAIC_API_ADDR"
+	platformHandoffAddrEnv = "MOSAIC_HEALTH_ADDR"
+	shellAddrEnv           = "MOSAIC_SHELL_ADDR"
+)
 
 // platformServingPath is the client-facing path probed to prove the API
 // listener is bound and routing. It names a real Connect method because the
@@ -72,19 +75,35 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	platformHandoffURL := strings.TrimRight(os.Getenv(platformHandoffEnv), "/")
-	if platformHandoffURL == "" {
-		platformHandoffURL = defaultPlatformHandoff
+	// The children bind their sockets in here, so it has to exist before
+	// either is started (ADR 0120).
+	if err := supervisor.PrepareRuntimeDir(cfg.RuntimeDir); err != nil {
+		return err
+	}
+	if cfg.Platform.IsUnix() {
+		log.Printf("mosaic-supervisor: children on sockets under %s", cfg.RuntimeDir)
+	} else {
+		// A warning rather than a note: this is the configuration that gives
+		// the Platform a second door, and it should not pass unremarked.
+		log.Printf("mosaic-supervisor: WARNING the Platform is on TCP at %s rather than a socket, "+
+			"so it can be reached without passing through this process", cfg.Platform.Address())
 	}
 
-	// Registration order is dependency order, and Run stops in reverse — the
-	// Shell first, then the Platform. Adding a third child means deciding
-	// where in this sequence it belongs.
+	// Registration order is stop order — the Platform first, the interface
+	// last. Adding a third child means deciding where in that sequence it
+	// belongs.
 	manager := supervisor.NewManager(cfg.BootID, log.Printf)
 	if err := manager.Add(supervisor.ChildSpec{
 		Name:       "platform",
 		Command:    fields(os.Getenv(platformCommandEnv)),
 		WorkingDir: os.Getenv(platformDirEnv),
+		// Told where to listen, rather than configured independently: the two
+		// halves have to agree, and a Supervisor dialling a socket its child
+		// was never asked to create fails with no useful error.
+		Env: []string{
+			platformAddrEnv + "=" + cfg.Platform.ListenSpec(),
+			platformHandoffAddrEnv + "=" + cfg.PlatformHandoff.ListenSpec(),
+		},
 		// The Platform's own handoff listener, which is the private channel
 		// between these two processes and is deliberately not routed through
 		// the front door.
@@ -93,10 +112,9 @@ func run() error {
 		// the Platform answers that while it is still running migrations. The
 		// front door must not send a client to a Platform that cannot serve
 		// it yet, so readiness is the question worth asking.
-		ReadinessURL: platformHandoffURL + "/readyz",
-		// And the surface a client actually arrives at, on the API port
-		// rather than the handoff one, because those are two listeners and
-		// only one of them serves users. `/readyz` is the Platform's opinion
+		Readiness: supervisor.NewProbe(cfg.PlatformHandoff, "/readyz"),
+		// And the surface a client actually arrives at, which is a different
+		// listener on a different socket — `/readyz` is the Platform's opinion
 		// of itself and cannot report that the client-facing listener failed
 		// to bind or that its mux is unrouted.
 		//
@@ -104,7 +122,7 @@ func run() error {
 		// runs, which is why this path is safe to poll: it invokes no RPC, so
 		// it neither does the work Bootstrap does nor spends the pre-auth
 		// rate-limit budget it shares with every real client (ADR 0101).
-		ServingURL: cfg.PlatformURL + platformServingPath,
+		Serving: supervisor.NewProbe(cfg.Platform, platformServingPath),
 		// Longer than the default. The Platform may be mid-transaction or
 		// draining a playback session, and a SIGKILL there is the unclean
 		// stop that costs a recovery on the next boot.
@@ -113,10 +131,14 @@ func run() error {
 		return err
 	}
 	if err := manager.Add(supervisor.ChildSpec{
-		Name:         "shell",
-		Command:      fields(os.Getenv(shellCommandEnv)),
-		WorkingDir:   os.Getenv(shellDirEnv),
-		ReadinessURL: cfg.ShellURL + "/healthz",
+		Name:       "shell",
+		Command:    fields(os.Getenv(shellCommandEnv)),
+		WorkingDir: os.Getenv(shellDirEnv),
+		Env:        []string{shellAddrEnv + "=" + cfg.Shell.ListenSpec()},
+		// The Shell's health endpoint is on the same listener it serves from,
+		// so one probe answers both questions and a serving probe would be
+		// the same request twice.
+		Readiness: supervisor.NewProbe(cfg.Shell, "/healthz"),
 		// It serves static files out of its own binary. There is nothing in
 		// flight to finish, so waiting longer would only lengthen every
 		// shutdown for no gain.
@@ -168,7 +190,7 @@ func run() error {
 	}
 
 	log.Printf("mosaic-supervisor listening on %s (boot: %s, platform: %s, shell: %s)",
-		cfg.ListenAddr, cfg.BootID, cfg.PlatformURL, cfg.ShellURL)
+		cfg.ListenAddr, cfg.BootID, cfg.Platform.Address(), cfg.Shell.Address())
 
 	errs := make(chan error, 1)
 	go func() {
