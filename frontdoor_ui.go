@@ -3,7 +3,12 @@
 
 package supervisor
 
-import "net/http"
+import (
+	"encoding/json"
+	"html"
+	"net/http"
+	"strings"
+)
 
 // Serving the Supervisor's Recovery SDUI (ADR 0005).
 //
@@ -21,9 +26,33 @@ import "net/http"
 // is asking a different question, and every client that renders this knows
 // which question it asked.
 
-// serveUI answers with the Supervisor's current state as an SDUI tree.
+// RecoveryEnvelope is what /supervisor/ui answers with: the tree to draw, and
+// the state as data beside it.
+//
+// **The phase is a field rather than something to read out of the prose.** A
+// renderer has to know when to stop drawing this and hand back to the Shell,
+// and the alternative is every client string-matching the sentences — which
+// would make the wording load-bearing and untranslatable. The tree is what a
+// person reads; the phase is what a client acts on.
+type RecoveryEnvelope struct {
+	Phase   Phase           `json:"phase"`
+	Version string          `json:"version,omitempty"`
+	BootID  string          `json:"bootId,omitempty"`
+	UI      json.RawMessage `json:"ui"`
+}
+
+// serveUI answers with the Supervisor's current state: an SDUI tree, and the
+// phase beside it.
 func (f *FrontDoor) serveUI(w http.ResponseWriter, r *http.Request) {
-	body, err := RecoveryScreenJSON(f.recoveryState())
+	state := f.recoveryState()
+	tree, err := RecoveryScreenJSON(state)
+	if err != nil {
+		http.Error(w, "recovery ui encoding failed", http.StatusInternalServerError)
+		return
+	}
+	body, err := json.Marshal(RecoveryEnvelope{
+		Phase: state.Phase, Version: state.Version, BootID: state.BootID, UI: tree,
+	})
 	if err != nil {
 		http.Error(w, "recovery ui encoding failed", http.StatusInternalServerError)
 		return
@@ -77,4 +106,31 @@ func (f *FrontDoor) recoveryState() RecoveryState {
 		state.Phase = PhaseReady
 	}
 	return state
+}
+
+// recoveryHTML is the embedded page with its no-script block filled in.
+//
+// **The bottom rung has to work with scripting off**, which is a property the
+// front-door tests asserted before this page had any script and which the
+// embedded renderer had to earn back rather than have relaxed. The whole
+// content of this page is a state that changes, so the honest degradation is
+// not a placeholder sentence — it is the current state, in words, that simply
+// stops updating.
+//
+// It extracts the emitter's *text* rather than rendering the tree a second
+// time. A second renderer in Go beside the one in JavaScript would be two
+// implementations of one component model, which is the drift this project has
+// paid for before; a text extraction has no component model to drift.
+func (f *FrontDoor) recoveryHTML() string {
+	return strings.Replace(recoveryPage, "{{noscript}}", f.recoveryTextHTML(), 1)
+}
+
+func (f *FrontDoor) recoveryTextHTML() string {
+	var b strings.Builder
+	for _, line := range RecoveryText(f.recoveryState()) {
+		b.WriteString("<p>")
+		b.WriteString(html.EscapeString(line))
+		b.WriteString("</p>\n  ")
+	}
+	return b.String()
 }

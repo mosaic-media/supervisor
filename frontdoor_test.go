@@ -155,13 +155,41 @@ func TestShellDownServesTheBootstrapPage(t *testing.T) {
 		t.Fatalf("want 503, got %d", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), "Mosaic is starting") {
-		t.Errorf("want the bootstrap page, got:\n%s", body)
+	if !strings.Contains(string(body), "Mosaic") {
+		t.Errorf("want the recovery page, got:\n%s", body)
 	}
-	// It must not depend on anything that could be the broken thing.
-	if strings.Contains(string(body), "<script") {
-		t.Error("the bootstrap page must not depend on scripting")
+
+	// **It must still say what is happening with scripting off.** The page
+	// gained a script when the embedded renderer landed — it fetches the
+	// Supervisor's state and redraws it as that state changes — and this is the
+	// property that had to be earned back rather than relaxed: the whole
+	// content is a state, so the honest degradation is the current state in
+	// words, which simply stops updating.
+	noscript := between(string(body), "<noscript>", "</noscript>")
+	if !strings.Contains(noscript, "Mosaic") {
+		t.Errorf("the no-script fallback says nothing:\n%s", noscript)
 	}
+	if !strings.Contains(noscript, "Starting") {
+		t.Errorf("the no-script fallback does not report the state:\n%s", noscript)
+	}
+	if strings.Contains(noscript, "<script") {
+		t.Error("the no-script fallback depends on scripting")
+	}
+}
+
+// between returns what sits between two markers, for reading one block out of a
+// page without a parser.
+func between(s, open, close string) string {
+	i := strings.Index(s, open)
+	if i < 0 {
+		return ""
+	}
+	rest := s[i+len(open):]
+	j := strings.Index(rest, close)
+	if j < 0 {
+		return ""
+	}
+	return rest[:j]
 }
 
 // The Supervisor being up is exactly what this endpoint reports, so a failed
@@ -223,12 +251,20 @@ func TestTheRecoveryUIIsServedOnItsOwnPath(t *testing.T) {
 	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
 		t.Errorf("Cache-Control = %q — a cached first-boot screen outlives the state it describes", got)
 	}
-	var node map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &node); err != nil {
+	var env struct {
+		Phase string         `json:"phase"`
+		UI    map[string]any `json:"ui"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
 		t.Fatalf("the recovery UI is not JSON: %v", err)
 	}
-	if node["type"] != "Box" {
-		t.Errorf("root node is %v, want the Box primitive", node["type"])
+	// The phase travels as data beside the tree, so a renderer knows when to
+	// hand back to the Shell without string-matching the sentences.
+	if env.Phase != string(PhaseStarting) {
+		t.Errorf("phase = %q", env.Phase)
+	}
+	if env.UI["type"] != "Box" {
+		t.Errorf("root node is %v, want the Box primitive", env.UI["type"])
 	}
 	if !strings.Contains(rec.Body.String(), "boot-1") {
 		t.Error("the boot id is not on the screen")

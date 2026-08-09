@@ -258,3 +258,27 @@ func clampProgress(v float64) float64 {
 		return v
 	}
 }
+
+// RecoveryText is the screen's words, in order.
+//
+// It exists for the no-script fallback and for anything else that needs what
+// this surface *says* without drawing it — a log line, a terminal, a test. It
+// walks the same tree the renderers do rather than re-deriving the sentences,
+// so the two can never disagree about what the Supervisor is saying.
+func RecoveryText(s RecoveryState) []string {
+	var out []string
+	var walk func(n sdui.Node)
+	walk = func(n sdui.Node) {
+		if n == nil {
+			return
+		}
+		if text, ok := n.GetProps().AsMap()["text"].(string); ok && strings.TrimSpace(text) != "" {
+			out = append(out, text)
+		}
+		for _, c := range n.GetChildren() {
+			walk(c)
+		}
+	}
+	walk(RecoveryScreen(s))
+	return out
+}

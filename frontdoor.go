@@ -4,6 +4,7 @@
 package supervisor
 
 import (
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -209,10 +210,11 @@ func (f *FrontDoor) platformUnavailable(w http.ResponseWriter, r *http.Request, 
 // system — it must work when everything that would make it prettier is the
 // thing that is broken.
 //
-// It is NOT Recovery SDUI. ADR 0005 says the Supervisor emits Recovery SDUI
-// and the Shell renders it; neither the emitter nor the renderer is built, and
-// this page is not a substitute for either. It says so, rather than looking
-// like the feature.
+// It serves the embedded renderer, which fetches the Supervisor's Recovery
+// SDUI and draws it — ADR 0005's third rung, where the second (the Shell
+// rendering the same tree) is still unbuilt. What it draws is the same
+// envelope a native client would render in its own skin; what it lacks is the
+// design tokens, which are Platform-delivered and absent by definition here.
 func (f *FrontDoor) shellUnavailable(w http.ResponseWriter, r *http.Request, err error) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
@@ -220,17 +222,22 @@ func (f *FrontDoor) shellUnavailable(w http.ResponseWriter, r *http.Request, err
 	if r.Method == http.MethodHead {
 		return
 	}
-	_, _ = w.Write([]byte(bootstrapPage))
+	_, _ = w.Write([]byte(f.recoveryHTML()))
 }
 
-// bootstrapPage is intentionally tiny and dependency-free.
-const bootstrapPage = `<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Mosaic</title></head>
-<body style="font:16px/1.6 system-ui,sans-serif;max-width:34rem;margin:20vh auto;padding:0 1.5rem">
-<h1 style="font-size:1.25rem">Mosaic is starting</h1>
-<p>The interface is not running yet. The Supervisor is up and will serve it as soon as it is.</p>
-<p><a href="/">Try again</a></p>
-</body></html>
-`
+// recoveryPage is the embedded renderer (ADR 0005's third rung), served in
+// place of the Shell when there is no Shell.
+//
+// **It is a page, not a message.** What it replaced was a static "Mosaic is
+// starting" with a Try again link — accurate, and unable to say anything that
+// changed, so a first boot downloading two binaries and a box that would never
+// come up looked identical for as long as somebody was prepared to wait. This
+// fetches /supervisor/ui and draws it, which is the same tree a native client
+// renders in its own skin.
+//
+// **No framework and no build step**, deliberately: it draws when there is no
+// Shell, so every dependency it had would be one more thing that must work on
+// the worst day this install has.
+//
+//go:embed recoveryui/index.html
+var recoveryPage string

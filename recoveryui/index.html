@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>Mosaic</title>
+<!--
+  The embedded recovery renderer (ADR 0005's third rung).
+
+  **No framework, no build step, no network beyond this origin.** It is the
+  renderer of last resort: it draws when there is no Shell — a first boot before
+  the interface has finished downloading, or a Shell that will not start — so
+  every dependency it had would be one more thing that has to work on the worst
+  day this install has. A React bundle here would be the interface the Supervisor
+  exists to be independent of.
+
+  It implements a **subset** of the SDUI vocabulary: the primitives the
+  Supervisor's own emitter produces, and nothing else. That is not a gap to close
+  — the Supervisor emits primitives only (ADR 0121) and this renders exactly
+  those. `TestTheEmbeddedRendererCoversEveryPrimitiveTheEmitterUses` compares the
+  two sets, so growing the emitter without growing this fails the build rather
+  than the screen.
+-->
+<style>
+  :root {
+    --bg: #f6f6f7; --fg: #1a1a1e; --muted: #55555f; --faint: #85858f;
+    --line: #dededf; --accent: #6b5cff; --danger: #d4444f; --track: #e2e2e5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17171b; --fg: #f2f2f4; --muted: #a6a6b0; --faint: #74747f;
+      --line: #2a2a31; --accent: #8a7bff; --danger: #ff6b73; --track: #2a2a31;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center;
+    background: var(--bg); color: var(--fg);
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: 1.5rem;
+  }
+  #root { width: 100%; }
+  /* Style tokens the emitter uses. Deliberately few: this renderer has no
+     design tokens — those are Platform-delivered (ADR 0040) and there is no
+     Platform in the states it draws — so it carries its own small scale rather
+     than pretending to the real skin. */
+  .v-xs { font-size: .75rem; }
+  .v-sm { font-size: .875rem; }
+  .v-md { font-size: 1rem; }
+  .v-2xl { font-size: 1.5rem; letter-spacing: -.02em; }
+  .w-bold { font-weight: 700; }
+  .c-text-muted { color: var(--muted); }
+  .c-text-faint { color: var(--faint); }
+  .bar { width: 100%; height: 6px; border-radius: 999px; background: var(--track); overflow: hidden; }
+  .bar > i { display: block; height: 100%; border-radius: 999px; background: var(--accent);
+             transition: width .3s ease; }
+  .bar.danger > i { background: var(--danger); }
+  .icon { width: 2rem; height: 2rem; display: grid; place-items: center;
+          border-radius: 999px; border: 1px solid var(--line); font-size: 1rem; }
+  .spin { animation: spin 1.4s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+  .offline { color: var(--faint); font-size: .875rem; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<noscript>
+  <!-- Filled by the Supervisor per request: the same state the script below
+       would draw, as text. So the bottom rung works with scripting off — it
+       simply stops updating on its own, which is the honest degradation for a
+       page whose whole content is a state that changes. -->
+  {{noscript}}
+</noscript>
+<script>
+(function () {
+  "use strict";
+
+  // The primitives this renderer implements. Named as an object rather than
+  // spread through a switch so the Go side can extract the keys and compare
+  // them with what the emitter produces — the same shape as the web client's
+  // vocabulary declaration, at a hundredth of the size.
+  var RENDERERS = {
+    Box: function (node) {
+      var el = document.createElement("div");
+      var s = (node.props && node.props.style) || {};
+      el.style.display = "flex";
+      el.style.flexDirection = s.direction === "row" ? "row" : "column";
+      if (s.gap != null) el.style.gap = s.gap * 4 + "px";
+      if (s.p != null) el.style.padding = s.p * 4 + "px";
+      if (s.maxWidth != null) el.style.maxWidth = s.maxWidth + "px";
+      if (s.align === "center") { el.style.alignItems = "center"; el.style.textAlign = "center"; }
+      el.style.margin = "0 auto";
+      return el;
+    },
+    Text: function (node) {
+      var el = document.createElement("p");
+      var s = (node.props && node.props.style) || {};
+      el.textContent = (node.props && node.props.text) || "";
+      el.style.margin = "0";
+      if (s.variant) el.classList.add("v-" + s.variant);
+      if (s.weight) el.classList.add("w-" + s.weight);
+      if (s.color) el.classList.add("c-" + s.color);
+      return el;
+    },
+    Icon: function (node) {
+      // The glyph set is a client asset and this client has none, so a name is
+      // drawn as a character rather than looked up. Saying "?" for an unknown
+      // one beats drawing nothing, which reads as a broken page.
+      var GLYPH = { refresh: "↻", alert: "!", check: "✓" };
+      var el = document.createElement("div");
+      var name = (node.props && node.props.name) || "";
+      el.className = "icon" + (name === "refresh" ? " spin" : "");
+      el.textContent = GLYPH[name] || "?";
+      el.setAttribute("aria-hidden", "true");
+      return el;
+    },
+    ProgressBar: function (node) {
+      var p = node.props || {};
+      var el = document.createElement("div");
+      el.className = "bar" + (p.tone === "danger" ? " danger" : "");
+      el.setAttribute("role", "progressbar");
+      el.setAttribute("aria-valuemin", "0");
+      el.setAttribute("aria-valuemax", "1");
+      el.setAttribute("aria-valuenow", String(p.value || 0));
+      var fill = document.createElement("i");
+      fill.style.width = Math.max(0, Math.min(1, p.value || 0)) * 100 + "%";
+      el.appendChild(fill);
+      return el;
+    }
+  };
+
+  function render(node) {
+    if (!node || !node.type) return null;
+    var make = RENDERERS[node.type];
+    // An unimplemented primitive renders its children rather than vanishing.
+    // Dropping the branch would silently remove whatever it contained, which
+    // on this surface could be the only sentence explaining what is wrong.
+    var el = make ? make(node) : document.createElement("div");
+    (node.children || []).forEach(function (child) {
+      var rendered = render(child);
+      if (rendered) el.appendChild(rendered);
+    });
+    return el;
+  }
+
+  var root = document.getElementById("root");
+  var failures = 0;
+
+  function draw(envelope) {
+    var tree = render(envelope.ui);
+    root.replaceChildren();
+    if (tree) root.appendChild(tree);
+    // aria-live so a screen reader is told when the state changes, since the
+    // whole point of this page is that it changes while somebody watches it.
+    root.setAttribute("aria-live", "polite");
+  }
+
+  function offline() {
+    // The Supervisor itself is unreachable, which is the one state below this
+    // page. Saying so is better than freezing on a stale screen, because the
+    // two look identical and mean opposite things.
+    if (failures < 3) return;
+    root.replaceChildren();
+    var p = document.createElement("p");
+    p.className = "offline";
+    p.textContent = "Cannot reach this Mosaic. It may be restarting — this page keeps trying.";
+    root.appendChild(p);
+  }
+
+  function poll() {
+    fetch("/supervisor/ui", { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function (envelope) {
+        failures = 0;
+        // Ready means the Shell is serving, so the front door will hand the
+        // real interface to a reload. This page's job is over, and it ends by
+        // getting out of the way rather than by drawing a finished state.
+        if (envelope.phase === "ready") { location.reload(); return; }
+        draw(envelope);
+      })
+      .catch(function () { failures++; offline(); })
+      .then(function () { setTimeout(poll, 1000); });
+  }
+
+  poll();
+})();
+</script>
+</body>
+</html>
