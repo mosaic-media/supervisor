@@ -155,6 +155,10 @@ type Manager struct {
 	// keeps one child's line from interleaving with another's mid-way.
 	out   io.Writer
 	outMu sync.Mutex
+	// capture, when set, records everything the children write as well as
+	// passing it through — the evidence a failed activation would otherwise
+	// destroy by reverting. Guarded by outMu, which every write already holds.
+	capture *ring
 }
 
 type child struct {
@@ -340,8 +344,8 @@ func (m *Manager) runOnce(ctx context.Context, name string, spec ChildSpec) erro
 	// Attributed, because three processes share one terminal. Both streams go
 	// to the same destination through the same lock, so a child's stderr line
 	// cannot land inside its own stdout line.
-	stdout := newPrefixWriter(m.out, &m.outMu, name)
-	stderr := newPrefixWriter(m.out, &m.outMu, name)
+	stdout := newPrefixWriter(sink{m}, &m.outMu, name)
+	stderr := newPrefixWriter(sink{m}, &m.outMu, name)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	// The boot id reaches every child, which is what stitches the three
