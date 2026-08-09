@@ -29,6 +29,15 @@ const (
 	// reserved prefix so it cannot collide with a Shell route, and it is the
 	// one path the front door answers itself.
 	supervisorHealthPath = "/supervisor/healthz"
+	// supervisorUIPath serves the Supervisor's own Recovery SDUI (ADR 0005).
+	//
+	// A Supervisor-owned path rather than an answer on the Platform's routes,
+	// and the difference matters: a client asking the Platform for a screen and
+	// silently getting the Supervisor's would have no way to tell that what it
+	// is drawing is not Mosaic. Asking here is asking a different question —
+	// "what does the thing below Mosaic have to say" — and every client that
+	// renders this knows it is rendering a Supervisor state.
+	supervisorUIPath = "/supervisor/ui"
 )
 
 // FrontDoor is the single public entry point (ADR 0005). It terminates TLS,
@@ -120,6 +129,8 @@ func (f *FrontDoor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.URL.Path == supervisorHealthPath:
 		f.serveHealth(w, r)
+	case r.URL.Path == supervisorUIPath:
+		f.serveUI(w, r)
 	case isPlatformPath(r.URL.Path):
 		f.platform.ServeHTTP(w, r)
 	default:

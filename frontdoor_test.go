@@ -205,3 +205,58 @@ func TestHealthPathIsNotProxied(t *testing.T) {
 		t.Errorf("the Supervisor's own probe was proxied to %q", got)
 	}
 }
+
+// The Supervisor's own Recovery SDUI is served on a Supervisor-owned path
+// (ADR 0005), not as an answer on the Platform's routes — a client receiving
+// the Supervisor's screen where it asked for Mosaic's would have no way to tell
+// what it is drawing.
+func TestTheRecoveryUIIsServedOnItsOwnPath(t *testing.T) {
+	front := frontDoor(t, "http://127.0.0.1:1", "http://127.0.0.1:1", func() Health {
+		return Health{Children: []ChildSnapshot{{Name: "platform", State: ChildStarting}}}
+	})
+	rec := httptest.NewRecorder()
+	front.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, supervisorUIPath, nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d", rec.Code)
+	}
+	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+		t.Errorf("Cache-Control = %q — a cached first-boot screen outlives the state it describes", got)
+	}
+	var node map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &node); err != nil {
+		t.Fatalf("the recovery UI is not JSON: %v", err)
+	}
+	if node["type"] != "Box" {
+		t.Errorf("root node is %v, want the Box primitive", node["type"])
+	}
+	if !strings.Contains(rec.Body.String(), "boot-1") {
+		t.Error("the boot id is not on the screen")
+	}
+}
+
+// The phase is inferred from the health the front door already has, so a child
+// that has passed its ceiling reads as degraded rather than as still starting —
+// the two things a person does different things about.
+func TestTheRecoveryUIReportsDegradedFromTheHealthReport(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		children []ChildSnapshot
+		want     string
+	}{
+		{"starting", []ChildSnapshot{{Name: "platform", State: ChildStarting}}, "Starting"},
+		{"degraded", []ChildSnapshot{{Name: "platform", State: ChildStarting, Unrecoverable: true}}, "not running"},
+		{"ready", []ChildSnapshot{{Name: "platform", State: ChildReady}}, "Mosaic is running"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			children := tc.children
+			front := frontDoor(t, "http://127.0.0.1:1", "http://127.0.0.1:1",
+				func() Health { return Health{Children: children} })
+			rec := httptest.NewRecorder()
+			front.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, supervisorUIPath, nil))
+			if !strings.Contains(rec.Body.String(), tc.want) {
+				t.Errorf("body does not say %q: %s", tc.want, rec.Body.String())
+			}
+		})
+	}
+}
