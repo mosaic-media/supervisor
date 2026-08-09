@@ -177,6 +177,12 @@ type Manager struct {
 	children map[string]*child
 	order    []string
 	bootID   string
+	// generationID names the Generation the children belong to, empty when
+	// nothing is managing Generations. It is handed to every child (ADR 0129)
+	// because a Platform cannot otherwise say which Generation it is — and that
+	// comparison is what settles an upgrade request, since the process that
+	// would have acknowledged one has just been replaced by it.
+	generationID string
 	// tel is where the lifecycle goes (ADR 0060). These are the facts a process
 	// structurally cannot report about itself — that it started, what code it
 	// exited with, that it has failed five times running — so the Supervisor is
@@ -417,7 +423,11 @@ func (m *Manager) runOnce(ctx context.Context, name string, spec ChildSpec) erro
 	cmd.Stderr = stderr
 	// The boot id reaches every child, which is what stitches the three
 	// processes' records into one timeline (ADR 0060).
-	cmd.Env = append(append(os.Environ(), "MOSAIC_BOOT_ID="+m.bootID), spec.Env...)
+	env := append(os.Environ(), "MOSAIC_BOOT_ID="+m.bootID)
+	if generation := m.generationOf(); generation != "" {
+		env = append(env, "MOSAIC_GENERATION_ID="+generation)
+	}
+	cmd.Env = append(env, spec.Env...)
 	// Its own process group, so stopping the Supervisor can stop a child's
 	// whole tree rather than orphaning grandchildren.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -715,6 +725,21 @@ func (m *Manager) Snapshot() Health {
 		})
 	}
 	return Health{Children: out}
+}
+
+// SetGenerationID records which Generation the children belong to, so the next
+// one started is told. Set at boot from the active pointer and again by an
+// activation, which is the only other moment it changes.
+func (m *Manager) SetGenerationID(version string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.generationID = version
+}
+
+func (m *Manager) generationOf() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.generationID
 }
 
 // SetSpool supplies where findings are recorded. Wired after construction

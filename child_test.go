@@ -575,3 +575,66 @@ func TestAChildNeedsANameAndCannotBeRegisteredTwice(t *testing.T) {
 		t.Error("a duplicate name was accepted; two children under one name would report as one")
 	}
 }
+
+// The Generation id reaches the child too, and it is what settles an upgrade
+// request (ADR 0129): a Platform compares the version it was asked to be
+// against the one it is, because the process that would have acknowledged the
+// upgrade has just been replaced by it.
+//
+// It was read by the Platform's telemetry resource and written by nobody for
+// the whole life of that field, which is the quiet half of this test.
+func TestTheGenerationIDReachesTheChildsEnvironment(t *testing.T) {
+	out := t.TempDir() + "/env"
+	m := NewManager("boot-1", nil)
+	m.SetGenerationID("v0.4.0")
+	if err := m.Add(ChildSpec{
+		Name:    "recorder",
+		Command: []string{"sh", "-c", "printf %s \"$MOSAIC_GENERATION_ID\" > " + out + "; sleep 30"},
+	}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go m.Run(ctx)
+
+	waitUntil(t, "the child to record its environment", func() bool {
+		data, err := os.ReadFile(out)
+		return err == nil && len(data) > 0
+	})
+
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(data) != "v0.4.0" {
+		t.Errorf("child saw MOSAIC_GENERATION_ID=%q, want the active Generation", data)
+	}
+}
+
+// An install with nothing managing Generations sets no id rather than an empty
+// one, so a Platform can tell "no Generation" from "a Generation called
+// nothing" — the DIY path, where nobody was going to carry out a request
+// either.
+func TestNoGenerationIDIsSetWhenNothingManagesGenerations(t *testing.T) {
+	out := t.TempDir() + "/env"
+	m := NewManager("boot-1", nil)
+	if err := m.Add(ChildSpec{
+		Name:    "recorder",
+		Command: []string{"sh", "-c", "printenv MOSAIC_GENERATION_ID > " + out + "; echo done >> " + out + "; sleep 30"},
+	}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go m.Run(ctx)
+
+	waitUntil(t, "the child to record its environment", func() bool {
+		data, err := os.ReadFile(out)
+		return err == nil && strings.Contains(string(data), "done")
+	})
+	data, _ := os.ReadFile(out)
+	if strings.TrimSpace(string(data)) != "done" {
+		t.Errorf("MOSAIC_GENERATION_ID was set to %q when nothing manages Generations", data)
+	}
+}

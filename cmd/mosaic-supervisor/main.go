@@ -142,6 +142,13 @@ func run() error {
 		return err
 	}
 
+	// Which Generation the children belong to, so a Platform can say which one
+	// it is — the fact that settles an upgrade request (ADR 0129). Set before
+	// any child starts, and again by an activation.
+	if version, ok := provisioner.ActiveGeneration(); ok {
+		manager.SetGenerationID(version)
+	}
+
 	if err := manager.Add(supervisor.ChildSpec{
 		Name:       supervisor.PlatformChildName,
 		Command:    childCommand(os.Getenv(platformCommandEnv), provisioner, supervisor.PlatformChildName),
@@ -281,6 +288,17 @@ func run() error {
 		// situation does not resolve on its own.
 		activity.Report(supervisor.PhaseDegraded, "", err.Error(), -1)
 	}
+
+	// **The upgrade loop starts after provisioning, not before.** A first boot
+	// is already fetching a Generation; a second fetcher asking the same
+	// catalogue while it does would be two downloads and one confusing screen.
+	// By here there is either a Generation or a recorded reason there is not.
+	go (&supervisor.UpgradeWatch{
+		Updater: provisioner.Update(),
+		Handoff: cfg.PlatformHandoff,
+		Spool:   spool,
+		Tel:     tel,
+	}).Run(ctx)
 
 	select {
 	case err := <-errs:

@@ -192,6 +192,25 @@ func (p *Provisioner) EnsureGeneration(ctx context.Context) error {
 	return nil
 }
 
+// ActiveGeneration is the version running now, if any. It is what the children
+// are told they belong to (ADR 0129).
+func (p *Provisioner) ActiveGeneration() (string, bool) {
+	if p == nil || p.Generations == nil {
+		return "", false
+	}
+	return p.Generations.Active()
+}
+
+// Update is the machinery an upgrade loop drives, nil when this install has no
+// release source — which is a deployment that manages its own binaries, where
+// there is nothing to check and nothing that could carry out a request.
+func (p *Provisioner) Update() *Updater {
+	if p == nil {
+		return nil
+	}
+	return p.Updater
+}
+
 func (p *Provisioner) log(format string, args ...any) {
 	if p == nil {
 		return

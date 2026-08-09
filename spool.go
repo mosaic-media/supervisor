@@ -62,6 +62,13 @@ const (
 	FindingChildUnrecoverable   = "child_unrecoverable"
 	FindingGenerationRolledBack = "generation_rolled_back"
 	FindingProvisionFailed      = "provision_failed"
+	// The offer and its failure (ADR 0129). An available version is a finding
+	// rather than a notification channel of its own, because the register is
+	// already the surface for "something needs your attention" and it already
+	// folds repeats into one Issue with a count — so a check every six hours
+	// does not produce a row every six hours.
+	FindingUpgradeAvailable = "upgrade_available"
+	FindingUpgradeFailed    = "upgrade_failed"
 
 	ContextChild      = "child"
 	ContextGeneration = "generation"

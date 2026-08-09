@@ -150,6 +150,11 @@ func (a *Activator) Activate(ctx context.Context, version string) (err error) {
 	if err := a.Generations.Activate(version); err != nil {
 		return err
 	}
+	// The children already started under this Generation carry the id they were
+	// given; what this fixes is the *next* start — a restart, a crash, a
+	// shutdown and boot — so a Platform never reports a Generation it is not
+	// running (ADR 0129).
+	a.Manager.SetGenerationID(version)
 	a.Tel.Info(componentGeneration, "is live",
 		String("version", version), String("from", from),
 		Duration("took", a.now().Sub(started)))
