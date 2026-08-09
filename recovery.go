@@ -107,7 +107,12 @@ func RecoveryScreenJSON(s RecoveryState) ([]byte, error) { return recoveryScreen
 
 func recoveryScreen(s RecoveryState) *ui.Element {
 	body := []ui.El{
-		ui.Icon(ui.Name(phaseIcon(s.Phase)), ui.Prop("size", "lg")),
+		// **A CSS length, not a size token.** `Icon.size` is `string|number` in
+		// the spec and reaches the element unchanged — there is no token scale
+		// behind it — so "lg" produced `width="lg"`, which a browser discards.
+		// It drew nothing, and nothing said so. Found by rendering this tree in
+		// the Shell, which is the whole argument for that rung existing.
+		ui.Icon(ui.Name(phaseIcon(s.Phase)), ui.Prop("size", "2rem")),
 		heading("Mosaic"),
 		line(headline(s), "md", "text-muted"),
 	}
@@ -135,10 +140,19 @@ func recoveryScreen(s RecoveryState) *ui.Element {
 		body = append(body, line("boot "+s.BootID, "xs", "text-faint"))
 	}
 
+	// **The centring is in the payload rather than in a client.** This tree is
+	// the whole page wherever it is drawn — there is no app shell around it,
+	// because the thing that emits one is what is missing — so it states that
+	// it fills the viewport and centres itself instead of each renderer
+	// carrying a stylesheet rule for it. The embedded renderer is the one
+	// exception and knows it is one: it drops the style keys it has no class
+	// for and centres from the page's own body rule, which is the single place
+	// a rule is cheaper than a third of a style vocabulary.
 	return ui.Box(
 		ui.Prop("style", map[string]any{
 			"direction": "column", "gap": 4, "p": 8,
 			"maxWidth": 520, "align": "center",
+			"justify": "center", "minHeight": "screen",
 		}),
 		ui.Group(body...),
 	)
@@ -154,15 +168,19 @@ func recoveryScreen(s RecoveryState) *ui.Element {
 // smallest way to spell each of them once. The Platform reaches for the same
 // generic constructor at its own Text call sites, which is what makes this a
 // contract gap rather than a Supervisor one.
+// Both centre their own text, for the same reason the root Box centres itself:
+// a column that centres its children centres each paragraph as a block and
+// leaves its lines ragged, and the fix belongs in the payload rather than in
+// each client's stylesheet.
 func heading(text string) ui.El {
 	return ui.Text(ui.Prop("text", text), ui.Prop("style", map[string]any{
-		"variant": "2xl", "weight": "bold", "tracking": "tight",
+		"variant": "2xl", "weight": "bold", "tracking": "tight", "align": "center",
 	}))
 }
 
 func line(text, variant, color string) ui.El {
 	return ui.Text(ui.Prop("text", text), ui.Prop("style", map[string]any{
-		"variant": variant, "color": color,
+		"variant": variant, "color": color, "align": "center",
 	}))
 }
 
@@ -227,10 +245,19 @@ func childrenLine(children []ChildSnapshot) string {
 	return strings.Join(parts, " · ")
 }
 
+// phaseIcon names a glyph, and **the name is the whole contract** — `iconName`
+// is open text in the spec, on the stated grounds that the glyph set is a
+// client asset rather than data. So there is nothing to check an emitter
+// against: name one a client does not ship and it draws an empty svg, silently.
+// This emitter named "alert" for its whole life, which the web client has never
+// had (it ships "warning"), and only rendering the tree in the Shell found it.
+//
+// recoveryGlyphs below is the local half of that coupling, and it is tested.
+// The other half — what a *client* ships — is a gap recorded in the roadmap.
 func phaseIcon(p Phase) string {
 	switch p {
 	case PhaseDegraded:
-		return "alert"
+		return "warning"
 	case PhaseReady:
 		return "check"
 	default:

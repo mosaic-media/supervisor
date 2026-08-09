@@ -28,6 +28,23 @@ import (
 // the JSON at /supervisor/ui. Growing this towards that would be building a
 // second Shell inside the process whose job is to not need one.
 
+// recoveryGlyphs is this renderer's icon set.
+//
+// The glyph set is a client asset (the spec says so, which is why `iconName` is
+// open text), and this client has no vector set — so a name is drawn as a
+// character. "?" for an unknown one beats drawing nothing, which reads as a
+// broken page rather than as a missing glyph.
+//
+// **It is a package-level map so it can be checked against phaseIcon**, which
+// is the half of the icon-name coupling that is inside this repository and
+// therefore guardable. It went unguarded until the emitter and this map
+// disagreed about the degraded phase and only a third renderer noticed.
+var recoveryGlyphs = map[string]string{
+	"refresh": "&#8635;",
+	"warning": "!",
+	"check":   "&#10003;",
+}
+
 // RecoveryFragment renders the state as the HTML fragment htmx swaps in.
 //
 // A fragment rather than a page: the page is loaded once and this is what
@@ -61,10 +78,7 @@ func renderNode(b *strings.Builder, n sdui.Node) {
 		b.WriteString(`</p>`)
 	case "Icon":
 		name, _ := props["name"].(string)
-		// The glyph set is a client asset and this client has none, so a name
-		// is drawn as a character rather than looked up. "?" for an unknown one
-		// beats drawing nothing, which reads as a broken page.
-		glyph := map[string]string{"refresh": "&#8635;", "alert": "!", "check": "&#10003;"}[name]
+		glyph := recoveryGlyphs[name]
 		if glyph == "" {
 			glyph = "?"
 		}

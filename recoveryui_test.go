@@ -191,6 +191,32 @@ func TestTheRecoveryPageHasAFloorBeneathTheStream(t *testing.T) {
 	}
 }
 
+// **Every glyph the emitter names, this renderer has.** The half of the
+// icon-name coupling that lives in this repository, and the only half that can
+// be checked at all: `iconName` is open text in the spec — the glyph set is a
+// client asset, not data — so there is no published set to measure an emitter
+// against, and naming one a client does not ship draws an empty svg silently.
+//
+// That is not hypothetical. This emitter named "alert" for its whole life; the
+// web client ships "warning" and has never had "alert", and it took rendering
+// the tree in the Shell to find out. What a *client* ships stays unguarded,
+// and is a gap on the roadmap rather than a test that could exist here.
+func TestEveryIconTheEmitterNamesHasAGlyph(t *testing.T) {
+	for _, state := range everyState() {
+		walk(RecoveryScreen(state), func(n sdui.Node) {
+			if n.GetType() != "Icon" {
+				return
+			}
+			name, _ := n.GetProps().AsMap()["name"].(string)
+			if recoveryGlyphs[name] == "" {
+				t.Errorf("phase %q names the icon %q and this renderer has no glyph for it — "+
+					"it would draw a question mark here, and nothing at all in a client "+
+					"whose set does not have it either", state.Phase, name)
+			}
+		})
+	}
+}
+
 // Somebody with JavaScript off is told something rather than shown a blank
 // page, which is the failure this whole surface exists to prevent.
 func TestTheEmbeddedRendererSaysSomethingWithoutJavaScript(t *testing.T) {
