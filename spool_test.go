@@ -16,7 +16,7 @@ import (
 
 func TestAFindingSurvivesTheProcessThatMadeIt(t *testing.T) {
 	dir := t.TempDir()
-	spool := OpenSpool(dir, t.Logf)
+	spool := OpenSpool(dir, nil)
 
 	spool.Record(FindingChildUnrecoverable, ContextChild, "platform", "exit status 1")
 	spool.Record(FindingGenerationRolledBack, ContextGeneration, "v0.4.0", "did not come up")
@@ -53,11 +53,11 @@ func TestRecordingIntoNowhereIsSafe(t *testing.T) {
 	}
 
 	// Configured with nowhere to write.
-	unset := OpenSpool("", t.Logf)
+	unset := OpenSpool("", nil)
 	unset.Record(FindingProvisionFailed, ContextHost, "", "no catalogue")
 
 	// Configured at a path that cannot be written.
-	unwritable := OpenSpool(filepath.Join(t.TempDir(), "no", "such", "dir"), t.Logf)
+	unwritable := OpenSpool(filepath.Join(t.TempDir(), "no", "such", "dir"), nil)
 	unwritable.Record(FindingProvisionFailed, ContextHost, "", "no catalogue")
 }
 

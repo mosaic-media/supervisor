@@ -109,7 +109,7 @@ type Updater struct {
 	Fetcher   *Fetcher
 	Activator *Activator
 	Keys      *Keyring
-	Log       func(string, ...any)
+	Tel       *Telemetry
 }
 
 // Available is what a check found.
@@ -277,9 +277,7 @@ func (u *Updater) catalogue(ctx context.Context) (ReleaseIndex, string, error) {
 }
 
 func (u *Updater) log(format string, args ...any) {
-	if u.Log != nil {
-		u.Log(format, args...)
-	}
+	u.Tel.Printf(format, args...)
 }
 
 // ReleaseArtefactName maps a binary's installed name to the name a release

@@ -92,9 +92,10 @@ type Fetcher struct {
 	// Client is the HTTP client. Nil takes a default with a deadline and a
 	// redirect policy that refuses a downgrade to HTTP.
 	Client *http.Client
-	// Log is where progress goes. It is the same function shape the Manager
-	// takes, so a Supervisor wires one logger into both.
-	Log func(string, ...any)
+	// Tel is where progress and outcome go (ADR 0060). The same telemetry the
+	// Manager holds, so a fetch and the child start that follows it land in
+	// one file under one boot id.
+	Tel *Telemetry
 	// Activity is where a download reports itself for the screen somebody is
 	// watching, if anything is watching. Nil is a fetch nobody is looking at —
 	// a test, or a path with no front door — and reporting into nothing is the
@@ -182,7 +183,8 @@ func (f *Fetcher) Fetch(ctx context.Context, rel Release) (keyID string, err err
 	if err := f.Generations.Commit(rel.Version); err != nil {
 		return "", err
 	}
-	f.log("generation %s is complete, signed by %s", rel.Version, keyID)
+	f.Tel.Info(componentGeneration, "fetched and verified",
+		String("version", rel.Version), String("signed_by", keyID))
 	return keyID, nil
 }
 
@@ -329,9 +331,7 @@ func (f *Fetcher) client() *http.Client {
 }
 
 func (f *Fetcher) log(format string, args ...any) {
-	if f.Log != nil {
-		f.Log(format, args...)
-	}
+	f.Tel.Printf(format, args...)
 }
 
 // refuseInsecureRedirect stops a release download being redirected off HTTPS.

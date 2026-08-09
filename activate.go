@@ -74,7 +74,11 @@ type Activator struct {
 	ReadyTimeout time.Duration
 	// Now is the clock, injectable so the evidence file's name is testable.
 	Now func() time.Time
-	Log func(string, ...any)
+	// Tel is where the switch is recorded (ADR 0060). A Generation activated
+	// that immediately dies is the failure whose interesting question is what
+	// changed between the previous Generation and this one, and only this
+	// process is in a position to answer it.
+	Tel *Telemetry
 	// Activity is where the switch reports itself for the screen somebody is
 	// watching. This is the phase a person is most likely to *be* watching:
 	// their Mosaic went away and they want to know whether it is coming back.
@@ -126,7 +130,10 @@ func (a *Activator) Activate(ctx context.Context, version string) (err error) {
 	// output is what the new Generation says on its way down.
 	evidence := a.Manager.Capture()
 
-	a.log("activating generation %s", version)
+	from, _ := a.Generations.Active()
+	started := a.now()
+	a.Tel.Info(componentGeneration, "activating",
+		String("version", version), String("from", from))
 	// Cleared however this ends. On the failure branch below, the honest screen
 	// is what the reverted children are actually doing — which the front door
 	// infers on its own — rather than an "upgrading" that has stopped.
@@ -143,7 +150,9 @@ func (a *Activator) Activate(ctx context.Context, version string) (err error) {
 	if err := a.Generations.Activate(version); err != nil {
 		return err
 	}
-	a.log("generation %s is live", version)
+	a.Tel.Info(componentGeneration, "is live",
+		String("version", version), String("from", from),
+		Duration("took", a.now().Sub(started)))
 	return nil
 }
 
@@ -195,7 +204,8 @@ func (a *Activator) revert(ctx context.Context, version string, previous map[str
 		a.log("what generation %s said before the revert is in %s", version, path)
 	}
 
-	a.log("reverting to the previous generation")
+	a.Tel.Error(componentGeneration, "did not come up and is being reverted",
+		String("version", version))
 	for _, t := range a.ordered() {
 		argv, ok := previous[t.Child]
 		if !ok || len(argv) == 0 {
@@ -243,7 +253,8 @@ func (a *Activator) Rollback(ctx context.Context) (version string, err error) {
 		return version, fmt.Errorf("%w: rolled back to %s and it did not come up: %v",
 			ErrActivationFailed, previous, err)
 	}
-	a.log("rolled back to generation %s", previous)
+	a.Tel.Info(componentGeneration, "rolled back",
+		String("version", previous), String("from", version))
 	return version, nil
 }
 
@@ -302,7 +313,5 @@ func (a *Activator) now() time.Time {
 }
 
 func (a *Activator) log(format string, args ...any) {
-	if a.Log != nil {
-		a.Log(format, args...)
-	}
+	a.Tel.Printf(format, args...)
 }

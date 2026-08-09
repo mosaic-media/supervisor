@@ -62,7 +62,7 @@ type Provisioner struct {
 	// Development is true when the release catalogue is trusted through a
 	// development key rather than the shipped one, so the boot log can say so.
 	Development bool
-	Log         func(string, ...any)
+	Tel         *Telemetry
 }
 
 // ErrNoReleaseSource is the refusal when there is nothing on disk and nowhere
@@ -77,12 +77,12 @@ var ErrNoReleaseSource = errors.New("supervisor: no generation on disk and no re
 // cannot. A nil Provisioner with a nil error is a deployment that manages its
 // own binaries — the DIY path, and the dev stack — which is supported rather
 // than degraded.
-func OpenProvisioner(cfg Config, manager *Manager, activity *Activity, spool *Spool, logf func(string, ...any)) (*Provisioner, error) {
+func OpenProvisioner(cfg Config, manager *Manager, activity *Activity, spool *Spool, tel *Telemetry) (*Provisioner, error) {
 	generations, err := OpenGenerations(cfg.StateDir)
 	if err != nil {
 		return nil, err
 	}
-	p := &Provisioner{Generations: generations, Activity: activity, Manager: manager, Spool: spool, Log: logf}
+	p := &Provisioner{Generations: generations, Activity: activity, Manager: manager, Spool: spool, Tel: tel}
 
 	if cfg.ReleaseURL == "" {
 		// Nothing to fetch from. Still a Provisioner, because it can boot onto
@@ -101,22 +101,22 @@ func OpenProvisioner(cfg Config, manager *Manager, activity *Activity, spool *Sp
 		// state today: no release key exists yet (ADR 0122), so a release
 		// binary carries an empty one. Refusing here would mean refusing to
 		// start, which is worse — an install with binaries on disk works fine.
-		logf("mosaic-supervisor: WARNING no trusted release key is compiled in, " +
+		tel.Warn(componentGeneration, "no trusted release key is compiled in, "+
 			"so this install cannot fetch or verify a release")
 		return p, nil
 	}
 	p.Development = development
 
-	fetcher := &Fetcher{Generations: generations, Keys: keys, Log: logf, Activity: activity}
+	fetcher := &Fetcher{Generations: generations, Keys: keys, Tel: tel, Activity: activity}
 	activator := &Activator{
 		Generations: generations,
 		Manager:     manager,
 		Targets:     ProvisionTargets,
-		Log:         logf,
+		Tel:         tel,
 		Activity:    activity,
 		Spool:       spool,
 	}
-	p.Updater = &Updater{IndexURL: cfg.ReleaseURL, Fetcher: fetcher, Activator: activator, Keys: keys, Log: logf}
+	p.Updater = &Updater{IndexURL: cfg.ReleaseURL, Fetcher: fetcher, Activator: activator, Keys: keys, Tel: tel}
 	return p, nil
 }
 
@@ -193,8 +193,8 @@ func (p *Provisioner) EnsureGeneration(ctx context.Context) error {
 }
 
 func (p *Provisioner) log(format string, args ...any) {
-	if p == nil || p.Log == nil {
+	if p == nil {
 		return
 	}
-	p.Log("mosaic-supervisor: "+format, args...)
+	p.Tel.Printf(format, args...)
 }

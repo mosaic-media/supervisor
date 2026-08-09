@@ -72,16 +72,16 @@ const (
 type Spool struct {
 	path string
 	mu   sync.Mutex
-	log  func(string, ...any)
+	tel  *Telemetry
 }
 
 // OpenSpool prepares one in the state directory. A Spool with an empty path is
 // a no-op, which is what a test or a Supervisor with nowhere to write gets.
-func OpenSpool(stateDir string, logf func(string, ...any)) *Spool {
+func OpenSpool(stateDir string, tel *Telemetry) *Spool {
 	if stateDir == "" {
-		return &Spool{log: logf}
+		return &Spool{tel: tel}
 	}
-	return &Spool{path: filepath.Join(stateDir, spoolName), log: logf}
+	return &Spool{path: filepath.Join(stateDir, spoolName), tel: tel}
 }
 
 // Path is where findings are written, for handing to the child.
@@ -125,8 +125,8 @@ func (s *Spool) Record(findingType, findingContext, reference, detail string) {
 }
 
 func (s *Spool) logf(format string, args ...any) {
-	if s == nil || s.log == nil {
+	if s == nil {
 		return
 	}
-	s.log("mosaic-supervisor: "+format, args...)
+	s.tel.Printf(format, args...)
 }

@@ -111,7 +111,7 @@ func (m *Manager) Restart(ctx context.Context, name string) error {
 	restart := c.restart
 	m.mu.Unlock()
 
-	m.log("restarting child %s", name)
+	m.tel.Info(componentChild, "restarting", String("child", name))
 	select {
 	case restart <- struct{}{}:
 	case <-ctx.Done():

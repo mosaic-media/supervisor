@@ -24,13 +24,13 @@ func provisioner(t *testing.T, cfg Config, children ...ChildSpec) *Provisioner {
 	if cfg.StateDir == "" {
 		cfg.StateDir = t.TempDir()
 	}
-	manager := NewManager("boot-1", t.Logf)
+	manager := NewManager("boot-1", nil)
 	for _, spec := range children {
 		if err := manager.Add(spec); err != nil {
 			t.Fatalf("Add(%s): %v", spec.Name, err)
 		}
 	}
-	p, err := OpenProvisioner(cfg, manager, &Activity{}, OpenSpool(t.TempDir(), t.Logf), t.Logf)
+	p, err := OpenProvisioner(cfg, manager, &Activity{}, OpenSpool(t.TempDir(), nil), nil)
 	if err != nil {
 		t.Fatalf("OpenProvisioner: %v", err)
 	}

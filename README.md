@@ -40,6 +40,19 @@ full history via `git subtree split`.
   clients reach the Platform through the front door directly, never through
   the Shell, so stopping the Shell first would drain nothing and would only
   discard the best screen still standing.
+- **Records what it does, to a file** ([ADR 0060](https://github.com/mosaic-media/architecture/blob/main/docs/adr/0060-the-supervisor-observes-independently.md)).
+  There is a whole class of failure where the process that would normally
+  report is the process that is broken — a migration that will not run, a
+  database that is not there, a Generation that starts and immediately dies —
+  and the Supervisor is the process that survives all of it *and* the one that
+  caused the transition. It writes JSON Lines to
+  `<state-dir>/logs/mosaic-supervisor.log` in the Platform's own record format,
+  under the same boot id, so one reader parses both: child starts with their
+  pid, exits with their code and how long they lasted, the run of failures
+  behind a crash loop, readiness transitions, and Generation selection,
+  activation and revert. Size-capped rotation keeping one previous file is the
+  whole retention policy. There is no database, no exporter and no collector,
+  because every one of those can be unavailable at the moment it is needed.
 - **Attributes their output.** Three processes share one terminal, so each
   child's console lines are prefixed with its name. This is safe precisely
   because it is the console stream: the Platform's structured records go to
@@ -67,9 +80,13 @@ full history via `git subtree split`.
 - **Recovery SDUI.** ADR 0005's richer degradation rungs — the Supervisor
   emitting Recovery SDUI, the Shell or an embedded renderer drawing it — are
   not built. The holding page above is a stopgap, not that feature.
-- **File-only self-observation, merging into the Platform's telemetry when it
-  is up** ([ADR 0060](https://github.com/mosaic-media/architecture/blob/main/docs/adr/0060-the-supervisor-observes-independently.md)).
-  Only the boot id is built.
+- **Reading those records without shell access.** The file is written; nothing
+  serves it. ADR 0060's two read paths — the Platform merging it into expert
+  mode when it is up, and the Supervisor showing it when the Platform is down —
+  are not built, so today finding out what the Supervisor saw means logging in
+  to the host, which is the thing
+  [ADR 0058](https://github.com/mosaic-media/architecture/blob/main/docs/adr/0058-telemetry-storage-retention-and-expert-mode.md)
+  set out to avoid.
 - **Signed release binaries and Generation activation** — the artefact half
   of [the roadmap's M4](https://github.com/mosaic-media/architecture/blob/main/docs/roadmap.md).
 
@@ -78,11 +95,19 @@ is left — this file does not restate it.
 
 ## Boundary
 
-Imports the standard library and nothing else, checked by
-`TestSupervisorImportsNothingButTheStandardLibrary`. Two reasons: it has to be
-able to run when the Platform cannot, so a compile-time dependency on it would
-tie the process that stays up to the one that fell over; and it makes this
-module's own extraction and any future move as mechanical as this one was.
+Imports the standard library, the published contract and Connect, and nothing
+else, checked by `TestSupervisorImportsNothingButTheStandardLibrary`. It has to
+be able to run when the Platform cannot, so a compile-time dependency on *it*
+is out — a published contract module is not a running service.
+
+The contract was admitted by [ADR 0121](https://github.com/mosaic-media/architecture/blob/main/docs/adr/0121-the-supervised-container-images.md),
+so the Supervisor emits Recovery SDUI with the same generated types every other
+emitter uses; Connect by [ADR 0123](https://github.com/mosaic-media/architecture/blob/main/docs/adr/0123-the-supervisor-answers-the-platforms-client-surface.md),
+so it can *answer* the Platform's own client surface while the Platform is down
+and every client has one SDUI source rather than a hand-coded choice between
+two. The second admission added nothing to the build graph — the contract
+already required Connect — so what moved was an import from transitive to
+direct.
 
 ## Running it
 

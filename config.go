@@ -36,6 +36,10 @@ const (
 	// Where Generations are kept, and where a release is fetched from.
 	stateDirEnv   = "MOSAIC_SUPERVISOR_STATE_DIR"
 	releaseURLEnv = "MOSAIC_SUPERVISOR_RELEASE_URL"
+	// How much the Supervisor records (ADR 0060). Levels are the only filtering
+	// there is: no sampling, no per-component rules, nothing that could quietly
+	// discard the one record that mattered.
+	logLevelEnv = "MOSAIC_SUPERVISOR_LOG_LEVEL"
 )
 
 const (
@@ -102,6 +106,11 @@ type Config struct {
 	// nothing. Empty means an install boots on whatever it already has and says
 	// so, which is the honest behaviour until there is somewhere to point.
 	ReleaseURL string
+	// LogLevel is the floor for the Supervisor's own records (ADR 0060). Info
+	// by default, and an unrecognised name resolves to info rather than being
+	// rejected: a typo in a log level must not silence the one process still
+	// able to explain why nothing else started.
+	LogLevel Level
 }
 
 // LoadConfig reads configuration from the environment, validating rather than
@@ -116,6 +125,7 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		BootID:     strings.TrimSpace(getenv(bootIDEnv)),
 		StateDir:   strings.TrimSpace(getenv(stateDirEnv)),
 		ReleaseURL: strings.TrimSpace(getenv(releaseURLEnv)),
+		LogLevel:   ParseLevel(getenv(logLevelEnv)),
 	}
 	if cfg.ListenAddr == "" {
 		cfg.ListenAddr = defaultListenAddr

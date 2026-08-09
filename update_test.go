@@ -112,7 +112,7 @@ func (h *releaseHost) updater(t *testing.T) (*Updater, *Generations, *Manager) {
 	}))
 	t.Cleanup(srv.Close)
 
-	m := NewManager("boot-1", func(string, ...any) {})
+	m := NewManager("boot-1", nil)
 	// A placeholder command: a fresh install has no Generation, so the first
 	// upgrade is what gives the child something real to run.
 	if err := m.Add(ChildSpec{
@@ -136,14 +136,12 @@ func (h *releaseHost) updater(t *testing.T) (*Updater, *Generations, *Manager) {
 		Targets:      []ActivationTarget{{Child: "platform", Binary: "mosaic-platform"}},
 		ReadyTimeout: 3 * time.Second,
 		Now:          func() time.Time { return time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC) },
-		Log:          func(string, ...any) {},
 	}
 	return &Updater{
 		IndexURL:  h.server.URL,
 		Fetcher:   &Fetcher{Generations: g, Keys: h.keys, Client: h.server.Client()},
 		Activator: act,
 		Keys:      h.keys,
-		Log:       func(string, ...any) {},
 	}, g, m
 }
 

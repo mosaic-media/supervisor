@@ -174,19 +174,11 @@ func TestAnExternallyManagedChildIsReportedNotStarted(t *testing.T) {
 // door, not through the Shell) and would replace its offline screen with the
 // holding page while the better one was still available.
 func TestChildrenStopInRegistrationOrder(t *testing.T) {
-	var mu sync.Mutex
-	var stopped []string
-
-	m := NewManager("boot-1", func(format string, args ...any) {
-		// The Manager announces each stop as it begins it, which is the only
-		// ordering signal available from outside.
-		if !strings.HasPrefix(format, "stopping child ") {
-			return
-		}
-		mu.Lock()
-		stopped = append(stopped, args[0].(string))
-		mu.Unlock()
-	})
+	// The Manager records each stop as it begins it, which is the only
+	// ordering signal available from outside. Read off the console stream
+	// rather than the file, so the assertion sees them as they happen.
+	var console lineRecorder
+	m := NewManager("boot-1", NewTelemetry(&console, LevelInfo))
 
 	for _, name := range []string{"platform", "shell"} {
 		if err := m.Add(ChildSpec{
@@ -213,11 +205,41 @@ func TestChildrenStopInRegistrationOrder(t *testing.T) {
 		t.Fatal("Run did not return after cancellation")
 	}
 
-	mu.Lock()
-	defer mu.Unlock()
+	stopped := console.fields("child: stopping child=")
 	if len(stopped) != 2 || stopped[0] != "platform" || stopped[1] != "shell" {
 		t.Errorf("stopped in order %v, want [platform shell] — the interface goes last", stopped)
 	}
+}
+
+// lineRecorder collects the Supervisor's console output so a test can assert on
+// what it said and in what order. Locked because the Manager writes from every
+// child's goroutine.
+type lineRecorder struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+func (r *lineRecorder) Write(p []byte) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.lines = append(r.lines, strings.TrimSuffix(string(p), "\n"))
+	return len(p), nil
+}
+
+// fields returns what followed prefix on each line carrying it, in order.
+func (r *lineRecorder) fields(prefix string) []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []string
+	for _, line := range r.lines {
+		_, rest, found := strings.Cut(line, prefix)
+		if !found {
+			continue
+		}
+		value, _, _ := strings.Cut(rest, " ")
+		out = append(out, value)
+	}
+	return out
 }
 
 // The ordering above only means something if the front door is still serving

@@ -71,6 +71,11 @@ const (
 // the front door routes on.
 const platformServingPath = "/mosaic.auth.v1.AuthService/Bootstrap"
 
+// main is the one place still writing through the standard logger, and
+// deliberately. Everything run reports goes through the telemetry it opens
+// (ADR 0060) — but a failure that escapes run may be the failure to load the
+// configuration that says where the log file goes, so the last word is on
+// stderr, which needs nothing to have worked.
 func main() {
 	if err := run(); err != nil {
 		log.Printf("mosaic-supervisor: %v", err)
@@ -87,18 +92,31 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// **Everything this process says goes to a file as well as the console**
+	// (ADR 0060). It is the process that survives the failures worth
+	// diagnosing — a Platform that will not start, a Generation that dies on
+	// activation — and until now it said all of that to stdout and nowhere
+	// else, so on a box where nobody is watching the console it said it to no
+	// one. Opened first, so the failures below are in it.
+	tel := supervisor.OpenTelemetry(cfg, os.Stderr)
+	defer tel.Close()
+	if path := tel.Path(); path != "" {
+		tel.Info("", "recording to "+path)
+	}
+
 	// The children bind their sockets in here, so it has to exist before
 	// either is started (ADR 0120).
 	if err := supervisor.PrepareRuntimeDir(cfg.RuntimeDir); err != nil {
 		return err
 	}
 	if cfg.Platform.IsUnix() {
-		log.Printf("mosaic-supervisor: children on sockets under %s", cfg.RuntimeDir)
+		tel.Info("", "children on sockets under "+cfg.RuntimeDir)
 	} else {
 		// A warning rather than a note: this is the configuration that gives
 		// the Platform a second door, and it should not pass unremarked.
-		log.Printf("mosaic-supervisor: WARNING the Platform is on TCP at %s rather than a socket, "+
-			"so it can be reached without passing through this process", cfg.Platform.Address())
+		tel.Warn("", "the Platform is on TCP rather than a socket, "+
+			"so it can be reached without passing through this process",
+			supervisor.String("address", cfg.Platform.Address()))
 	}
 
 	// What the Supervisor is doing to itself, shared by the components that do
@@ -108,18 +126,18 @@ func run() error {
 	// Where the Supervisor writes what went wrong, for the Platform to adopt
 	// when it is up (ADR 0119). A file rather than a call, because the findings
 	// worth having most are the ones made while the Platform is not there.
-	spool := supervisor.OpenSpool(cfg.StateDir, log.Printf)
+	spool := supervisor.OpenSpool(cfg.StateDir, tel)
 
 	// Registration order is stop order — the Platform first, the interface
 	// last. Adding a third child means deciding where in that sequence it
 	// belongs.
-	manager := supervisor.NewManager(cfg.BootID, log.Printf)
+	manager := supervisor.NewManager(cfg.BootID, tel)
 	manager.SetSpool(spool)
 
 	// The Generations this install holds, and the machinery to acquire one.
 	// Built before the children are registered because it is what decides what
 	// they run.
-	provisioner, err := supervisor.OpenProvisioner(cfg, manager, activity, spool, log.Printf)
+	provisioner, err := supervisor.OpenProvisioner(cfg, manager, activity, spool, tel)
 	if err != nil {
 		return err
 	}
@@ -209,7 +227,7 @@ func run() error {
 		// Said at every boot on purpose. A self-signed certificate is a
 		// stopgap, and an install that has quietly been on one for a year is
 		// the failure this warning exists to prevent.
-		log.Printf("mosaic-supervisor: WARNING serving a self-signed certificate generated for this boot; " +
+		tel.Warn("", "serving a self-signed certificate generated for this boot; "+
 			"set MOSAIC_SUPERVISOR_TLS_CERT and MOSAIC_SUPERVISOR_TLS_KEY for a real one")
 	}
 
@@ -227,8 +245,12 @@ func run() error {
 		IdleTimeout: 120 * time.Second,
 	}
 
-	log.Printf("mosaic-supervisor listening on %s (boot: %s, platform: %s, shell: %s)",
-		cfg.ListenAddr, cfg.BootID, cfg.Platform.Address(), cfg.Shell.Address())
+	// No boot id among the fields: every record already carries it, and a
+	// second copy is a second thing to keep in step.
+	tel.Info("", "listening",
+		supervisor.String("address", cfg.ListenAddr),
+		supervisor.String("platform", cfg.Platform.Address()),
+		supervisor.String("shell", cfg.Shell.Address()))
 
 	errs := make(chan error, 1)
 	go func() {
@@ -250,7 +272,7 @@ func run() error {
 	// provision must keep running, because the front door is what says why —
 	// exiting would replace an explanation with a closed port.
 	if err := provisioner.EnsureGeneration(ctx); err != nil {
-		log.Printf("mosaic-supervisor: %v", err)
+		tel.Error("", err.Error())
 		// **And on the screen, because a log is not a surface an install in
 		// this state has.** Nothing is serving and nothing is going to, so the
 		// recovery page is the only thing anybody can reach — and left to the
@@ -266,7 +288,7 @@ func run() error {
 	case <-ctx.Done():
 	}
 
-	log.Printf("mosaic-supervisor: shutting down")
+	tel.Info("", "shutting down")
 
 	// The children go first, in registration order — the Platform, then the
 	// Shell — and **the front door stays open while they do**. That ordering
@@ -287,10 +309,10 @@ func run() error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), frontDoorDrain)
 	defer cancel()
 	if err := server.Shutdown(shutdownCtx); err != nil {
-		log.Printf("mosaic-supervisor: front door did not drain cleanly: %v", err)
+		tel.Warn("", "the front door did not drain cleanly", supervisor.Err(err))
 	}
 
-	log.Printf("mosaic-supervisor: stopped")
+	tel.Info("", "stopped")
 	return nil
 }
 

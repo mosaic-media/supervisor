@@ -177,7 +177,11 @@ type Manager struct {
 	children map[string]*child
 	order    []string
 	bootID   string
-	log      func(string, ...any)
+	// tel is where the lifecycle goes (ADR 0060). These are the facts a process
+	// structurally cannot report about itself — that it started, what code it
+	// exited with, that it has failed five times running — so the Supervisor is
+	// the only thing in a position to write them down. Nil discards.
+	tel *Telemetry
 	// out and outMu are the children's console destination and the lock that
 	// keeps one child's line from interleaving with another's mid-way.
 	out   io.Writer
@@ -220,15 +224,12 @@ type child struct {
 	restart chan struct{}
 }
 
-// NewManager builds a Manager. log may be nil.
-func NewManager(bootID string, log func(string, ...any)) *Manager {
-	if log == nil {
-		log = func(string, ...any) {}
-	}
+// NewManager builds a Manager. tel may be nil, which discards.
+func NewManager(bootID string, tel *Telemetry) *Manager {
 	return &Manager{
 		children: map[string]*child{},
 		bootID:   bootID,
-		log:      log,
+		tel:      tel,
 		out:      os.Stdout,
 	}
 }
@@ -298,7 +299,7 @@ func (m *Manager) Run(ctx context.Context) {
 	<-ctx.Done()
 
 	for i := range names {
-		m.log("stopping child %s", names[i])
+		m.tel.Info(componentChild, "stopping", String("child", names[i]))
 		stops[i]()
 		<-dones[i]
 	}
@@ -352,20 +353,38 @@ func (m *Manager) superviseOne(ctx context.Context, name string) {
 		}
 		crossed := m.recordFailure(name, err, healthy, spec.MaxConsecutiveFailures)
 
-		switch {
-		case crossed:
-			// Said once, on the transition. Repeating it every minute is how
-			// the one line that matters becomes the one nobody reads.
-			m.log("child %s has failed %d times in a row and is not coming up (%v); "+
-				"still retrying every %s", name, m.failureCountOf(name), err, maxBackoff)
+		// The exit itself, always, because the shape of a crash loop is the
+		// diagnosis and no single process instance can see it: the exit code,
+		// how long it lasted and how many failures precede it are what
+		// distinguish a database that was briefly away from a binary that
+		// cannot run here at all.
+		// Warn rather than error every time round: an exit here is always
+		// unexpected — a stop the Supervisor asked for and a cancelled context
+		// both returned above — but one exit is a process that fell over and
+		// will be back, which is not the same claim as the ceiling below.
+		m.tel.Warn(componentChild, "exited",
+			String("child", name),
+			Int("exit_code", exitCodeOf(err)),
+			Duration("uptime", time.Since(started)),
+			Int("consecutive_failures", m.failureCountOf(name)),
+			Duration("backoff", backoff),
+			Err(err))
+
+		// Crossing the ceiling is said once, on the transition. Repeating it
+		// every minute is how the one line that matters becomes the one nobody
+		// reads — the exit record above is already written every time round.
+		if crossed {
+			m.tel.Error(componentChild, "is not coming up and is still being retried",
+				String("child", name),
+				Int("consecutive_failures", m.failureCountOf(name)),
+				Duration("retry_interval", maxBackoff),
+				Err(err))
 			// And recorded, because a line said once is a line that scrolls
 			// away (ADR 0119). On the transition rather than on every failure,
 			// for the same reason the log is: the register folds repeats into
 			// a count, but a spool line per minute is a file that grows
 			// without bound on the one install that most needs it readable.
 			m.spool.Record(FindingChildUnrecoverable, ContextChild, name, errText(err))
-		case !m.unrecoverableOf(name):
-			m.log("child %s exited (%v); restarting in %s", name, err, backoff)
 		}
 
 		select {
@@ -412,8 +431,13 @@ func (m *Manager) runOnce(ctx context.Context, name string, spec ChildSpec) erro
 	c.cmd, c.pid, c.state, c.lastErr = cmd, cmd.Process.Pid, ChildStarting, ""
 	c.startedAt = time.Now()
 	c.starts++
+	starts := c.starts
 	m.mu.Unlock()
-	m.log("child %s started (pid %d)", name, cmd.Process.Pid)
+	m.tel.Info(componentChild, "started",
+		String("child", name),
+		Int("pid", cmd.Process.Pid),
+		Int("start", starts),
+		String("command", spec.Command[0]))
 
 	probeCtx, stopProbe := context.WithCancel(ctx)
 	defer stopProbe()
@@ -567,12 +591,34 @@ func (m *Manager) specOf(name string) ChildSpec {
 	return m.children[name].spec
 }
 
+// setState moves a child and records the move when it is one.
+//
+// **The transition is the fact, not the state**, which is why this is not a
+// plain setter: readiness is polled every couple of seconds, so recording the
+// answer would be a line every tick and recording nothing would make a child
+// that flaps ready → starting → ready completely invisible. Only the edges are
+// written, and they are what a crash loop or a flapping probe looks like in a
+// file somebody reads afterwards.
+//
+// For the Platform child this edge is also the **handover**: the front door
+// answers the client surface itself while the Platform is not ready and steps
+// out of the way when it is (ADR 0123), and it reads the same state this sets.
+// There is deliberately no second record saying so — one fact, one statement.
 func (m *Manager) setState(name string, state ChildState) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	if c, ok := m.children[name]; ok {
-		c.state = state
+	c, ok := m.children[name]
+	if !ok || c.state == state {
+		m.mu.Unlock()
+		return
 	}
+	from := c.state
+	c.state = state
+	m.mu.Unlock()
+
+	m.tel.Info(componentChild, "state changed",
+		String("child", name),
+		String("from", string(from)),
+		String("to", string(state)))
 }
 
 // recordFailure marks a child failed and returns whether this failure is the
@@ -688,4 +734,23 @@ func errText(err error) string {
 		return "the process exited without an error"
 	}
 	return err.Error()
+}
+
+// exitCodeOf reports what a child exited with, for the record (ADR 0060).
+//
+// Three outcomes and they are genuinely different: `0` is a process that exited
+// cleanly when it was not supposed to exit at all — the shape a Platform with a
+// missing DSN has, which is why it is worth distinguishing rather than folding
+// into "it died". A positive code is the process's own verdict. `-1` is either a
+// signal or a start that never happened, and Go reports both the same way, so
+// the error text beside this is what tells them apart.
+func exitCodeOf(err error) int {
+	if err == nil {
+		return 0
+	}
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		return exit.ExitCode()
+	}
+	return -1
 }

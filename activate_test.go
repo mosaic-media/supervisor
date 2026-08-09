@@ -84,7 +84,7 @@ func newActivation(t *testing.T) *activation {
 	}))
 	t.Cleanup(srv.Close)
 
-	m := NewManager("boot-1", func(string, ...any) {})
+	m := NewManager("boot-1", nil)
 	if err := m.Add(ChildSpec{
 		Name:      "platform",
 		Command:   []string{filepath.Join(g.Dir("v0.1.0"), "mosaic-platform")},
@@ -111,7 +111,6 @@ func newActivation(t *testing.T) *activation {
 			Targets:      []ActivationTarget{{Child: "platform", Binary: "mosaic-platform"}},
 			ReadyTimeout: 3 * time.Second,
 			Now:          func() time.Time { return time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC) },
-			Log:          func(string, ...any) {},
 		},
 	}
 }
