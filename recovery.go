@@ -148,13 +148,24 @@ func recoveryScreen(s RecoveryState) *ui.Element {
 	// exception and knows it is one: it drops the style keys it has no class
 	// for and centres from the page's own body rule, which is the single place
 	// a rule is cheaper than a third of a style vocabulary.
+	//
+	// **Two boxes, because a box cannot centre itself.** The outer one fills
+	// the viewport and centres its child on both axes; the inner one is the
+	// column that column has a maximum width. Putting maxWidth on the outer box
+	// makes *it* 520 wide and leaves it against the left edge — which is what it
+	// did, and which the page's own `margin: 0 auto` hid until the Shell drew
+	// the same tree without one.
 	return ui.Box(
 		ui.Prop("style", map[string]any{
-			"direction": "column", "gap": 4, "p": 8,
-			"maxWidth": 520, "align": "center",
-			"justify": "center", "minHeight": "screen",
+			"direction": "column", "align": "center", "justify": "center",
+			"minHeight": "screen", "p": 8,
 		}),
-		ui.Group(body...),
+		ui.Box(
+			ui.Prop("style", map[string]any{
+				"direction": "column", "gap": 4, "align": "center", "maxWidth": 520,
+			}),
+			ui.Group(body...),
+		),
 	)
 }
 
