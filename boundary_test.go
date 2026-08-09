@@ -71,8 +71,9 @@ func TestSupervisorImportsNothingButTheStandardLibrary(t *testing.T) {
 				continue
 			}
 			t.Errorf("%s: imports %q — the Supervisor may depend only on the standard library, "+
-				"%s and %s, so it can run when the Platform cannot (ADR 0121, ADR 0123)",
-				rel, importPath, contractsModule, connectModule)
+				"%s, %s and %s, so it can run when the Platform cannot "+
+				"(ADR 0121, ADR 0123, ADR 0128)",
+				rel, importPath, contractsModule, connectModule, otelModule)
 		}
 		return nil
 	})
@@ -102,16 +103,28 @@ func TestSupervisorImportsNothingButTheStandardLibrary(t *testing.T) {
 const (
 	contractsModule = "github.com/mosaic-media/contracts"
 	connectModule   = "connectrpc.com/connect"
+	// OpenTelemetry, admitted by ADR 0128. The Supervisor takes the *SDK* here
+	// rather than the API a module gets, because it is a binary and something
+	// has to wire the pipeline — but it exports to a **file** and never over
+	// OTLP, which is precisely ADR 0060's objection honoured rather than
+	// overruled: that record rejected an exporter needing a running collector,
+	// and nothing admitted here dials, resolves or waits on anything.
+	//
+	// It is what ended the third hand-written copy of Mosaic's telemetry. The
+	// duplication it replaced was a record format shared with the Platform by
+	// convention, guarded by a test naming its JSON keys — the open question
+	// ADR 0060's own Consequences left.
+	otelModule = "go.opentelemetry.io/otel"
 )
 
-// allowedNonStandard reports whether an import is one of the permitted two.
+// allowedNonStandard reports whether an import is one of the permitted three.
 //
 // Matched on the module paths and their subpackages, and on nothing else — in
 // particular **not** on a prefix like `github.com/mosaic-media/`, which would
 // silently admit the Platform, the SDK and every module repository. The
-// widening is two modules wide and the test is what keeps it that way.
+// widening is three modules wide and the test is what keeps it that way.
 func allowedNonStandard(importPath string) bool {
-	for _, m := range []string{contractsModule, connectModule} {
+	for _, m := range []string{contractsModule, connectModule, otelModule} {
 		if importPath == m || strings.HasPrefix(importPath, m+"/") {
 			return true
 		}

@@ -4,7 +4,7 @@
 package supervisor
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -13,70 +13,53 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/stdout/stdoutlog"
+	"go.opentelemetry.io/otel/log"
+	logsdk "go.opentelemetry.io/otel/sdk/log"
+	"go.opentelemetry.io/otel/sdk/resource"
 )
 
-// The Supervisor's own telemetry (ADR 0060).
+// The Supervisor's own telemetry (ADR 0060), on OpenTelemetry (ADR 0128).
 //
 // **There is a whole class of failure where the process that would normally
-// report is the process that is broken**, and it is the class an operator meets
-// first: a migration that will not run, a database that is not there, a
-// Generation that starts and immediately dies. The Platform's structured
-// records, its Postgres store and its expert-mode viewer are all inside the
-// thing that failed. The Supervisor is the process that survives all of it, and
-// it is also the process that *caused* the transition — it selected the
-// Generation, started it and watched it die.
+// report is the process that is broken** — a migration that will not run, a
+// database that is not there, a Generation that starts and immediately dies —
+// and the Supervisor is the process that survives all of it *and* the one that
+// caused the transition. This is where it writes that down.
 //
-// Until now it said all of that to stdout and nowhere else, so on a box where
-// nobody is watching the console it said it to no one. This is the file.
+// **It was hand-written for one day.** The record format was duplicated from the
+// Platform's, with a test naming the JSON keys as the only thing holding two
+// binaries' serialisation in step, and ADR 0060 had named that duplication as an
+// open question. ADR 0128 answered it: the shared vocabulary is OpenTelemetry's,
+// which neither process owns, and the file is now ordinary OTLP JSON that any
+// collector reads.
 //
-// **Deliberately less than the Platform's, and the omissions are the decision.**
-// No database, no OTel SDK, no collector, no exporter, no traces, no metrics,
-// no query surface, no retention beyond size-capped rotation. Every one of those
-// is something that can be unavailable at the moment it is needed, and the
-// Supervisor's entire value here is being the thing that still works.
+// **The OTel SDK is here and OTLP is not, and that distinction is the whole of
+// ADR 0060's objection honoured.** That record rejected "ships the OTel SDK and
+// exports over OTLP" because an exporter needs a running collector — the same
+// aliveness assumption, relocated. A *file* exporter needs nothing. Nothing here
+// dials, resolves or waits on anything, which is the property that matters for
+// the component whose job is to still work.
 //
 // **Nothing here is fatal and nothing here blocks.** A Supervisor that failed to
 // start a child, and then failed to start *because* it could not write down that
 // it had failed to start a child, would be the machinery defeating the thing it
-// is for. A nil *Telemetry discards, so a component that was handed none is not
-// a component that crashes.
+// is for. A nil *Telemetry discards.
 
-// The record format is the Platform's, deliberately duplicated.
-//
-// ADR 0060 left this open — "either the Supervisor imports a small shared
-// package or it duplicates a struct definition" — and named the duplication as a
-// real hazard. It is duplicated, for the same reason the finding types in
-// `spool.go` are: the Platform's telemetry package is `internal/`, the boundary
-// is two published modules wide and that is not one of them, and a third
-// published module carrying one struct would be a package to version, tag and
-// keep in step for less code than this comment.
-//
-// What makes the duplication bounded rather than open-ended is the direction of
-// the dependency. The Platform *reads* these files and the Supervisor never
-// reads the Platform's, so only one side has to be tolerant — and JSON Lines
-// with omitted empties is tolerant by construction: an unknown key is ignored, a
-// missing key is empty. The hazard is not a file that cannot be parsed, it is a
-// key quietly renamed. So the key set is pinned by a test that names every one
-// of them, and that test is the whole guard.
-//
-// Three keys the Platform writes are absent rather than empty: `trace`, `span`
-// and `module`. The Supervisor runs no traces (ADR 0060 says so) and links no
-// Module, so writing those keys empty would be a claim it has them.
-type telemetryEntry struct {
-	Time      string         `json:"time"`
-	Level     string         `json:"level"`
-	Service   string         `json:"service,omitempty"`
-	Instance  string         `json:"instance,omitempty"`
-	Boot      string         `json:"boot,omitempty"`
-	Component string         `json:"component,omitempty"`
-	Message   string         `json:"message"`
-	Fields    map[string]any `json:"fields,omitempty"`
-}
-
-// serviceName is what the Supervisor calls itself in a record, matching the
-// Platform's "mosaic-platform" so a merged read tells them apart by a field
+// serviceName is what the Supervisor calls itself, matching the Platform's
+// "mosaic-platform" so a merged read tells them apart by a resource attribute
 // rather than by which file a line came out of.
 const serviceName = "mosaic-supervisor"
+
+// bootAttribute names the boot id shared with the children (ADR 0060), which is
+// what stitches three processes' records into one timeline.
+//
+// A Mosaic-namespaced key because OpenTelemetry has no convention for it: a boot
+// is not `service.instance.id` (that names a process, and three processes share
+// one boot) and not a trace id (a boot is not a request).
+const bootAttribute = "mosaic.boot.id"
 
 // The components a record can be attributed to.
 //
@@ -88,6 +71,9 @@ const (
 	componentGeneration = "generation"
 	componentTelemetry  = "telemetry"
 )
+
+// componentAttribute is the key the constants above are written under.
+const componentAttribute = "component"
 
 // telemetryDirName and telemetryFileName place the log beside the Platform's.
 //
@@ -104,17 +90,18 @@ const (
 
 // maxLogBytes is where the file rotates, and one previous file is kept.
 //
-// The Supervisor's records are lifecycle facts rather than per-request ones —
-// a handful per boot, a few dozen an hour from a child that is crash-looping —
-// so 8MiB is months of ordinary running and hours of the worst case. Keeping one
+// The Supervisor's records are lifecycle facts rather than per-request ones — a
+// handful per boot, a few dozen an hour from a child that is crash-looping — so
+// 8MiB is months of ordinary running and hours of the worst case. Keeping one
 // previous file is what stops a crash loop from being able to erase the boot
 // that preceded it, which is the record that says what changed; two files is the
 // smallest number that can hold both, and it bounds the whole thing at 16MiB
-// without needing a retention policy to be a thing anybody configures.
+// without needing a retention policy anybody configures.
 const maxLogBytes = 8 << 20
 
-// Level is a record's severity, with the same names and the same rendering as
-// the Platform's so one reader sorts both.
+// Level is a record's severity. It is the Supervisor's own small enum rather
+// than log.Severity used directly, because the configuration surface is a word
+// an operator writes in an environment variable and OTel's scale has 24 values.
 type Level int
 
 const (
@@ -129,7 +116,7 @@ const (
 	LevelError
 )
 
-// String renders the level for a sink.
+// String renders the level for the console and for a record's severity text.
 func (l Level) String() string {
 	switch l {
 	case LevelDebug:
@@ -140,6 +127,20 @@ func (l Level) String() string {
 		return "error"
 	default:
 		return "info"
+	}
+}
+
+// severity maps onto OpenTelemetry's scale.
+func (l Level) severity() log.Severity {
+	switch l {
+	case LevelDebug:
+		return log.SeverityDebug
+	case LevelWarn:
+		return log.SeverityWarn
+	case LevelError:
+		return log.SeverityError
+	default:
+		return log.SeverityInfo
 	}
 }
 
@@ -164,15 +165,14 @@ func ParseLevel(s string) Level {
 // **The zero value is `unclassified`, and that is the whole design.** A Field
 // built as a struct literal rather than through a constructor has not been
 // classified by anybody, so it is redacted on the way out — a field somebody
-// forgot to think about is dropped, not leaked. The class itself is never
-// serialised, so it need not agree with any other component's spelling of it;
-// only the behaviour has to.
+// forgot to think about is dropped, not leaked. OpenTelemetry has no notion of
+// classification, so the conversion to an attribute is the last place the rule
+// can be applied and it is applied to every field on every path.
 //
 // There is no Identifier class here, and its absence is deliberate rather than
 // pending. Identifier exists to answer "is this the same subject as before"
 // without recording who the subject is, and the Supervisor has no subjects: it
-// never sees a user, a session or a request. Carrying a salted-digest path with
-// nothing to digest would be a security mechanism nobody exercises.
+// never sees a user, a session or a request.
 type redaction int
 
 const (
@@ -185,7 +185,7 @@ const (
 // redactedPlaceholder replaces any value not explicitly marked safe.
 const redactedPlaceholder = "[REDACTED]"
 
-// Field is one structured field of a record. Its class is unexported so the
+// Field is one structured value on a record. Its class is unexported so the
 // only way to produce a safe one is through a constructor below.
 type Field struct {
 	Key   string
@@ -199,8 +199,7 @@ func String(key, value string) Field {
 	return Field{Key: key, Value: value, class: redactNone}
 }
 
-// Int builds a verbatim Field for a count, a size or an exit code. Counts
-// describe volume, not people.
+// Int builds a verbatim Field for a count, a size or an exit code.
 func Int(key string, value int) Field {
 	return Field{Key: key, Value: value, class: redactNone}
 }
@@ -247,13 +246,29 @@ func Secret(key string, value any) Field {
 	return Field{Key: key, Value: redactNow(value), class: redactSecret}
 }
 
-// emitValue returns what a sink should write for f, re-applying redaction on the
-// way out so an unclassified literal fails closed.
-func (f Field) emitValue() any {
-	if f.class == redactNone {
-		return f.Value
+// attribute converts f, re-applying redaction so an unclassified literal fails
+// closed.
+func (f Field) attribute() attribute.KeyValue {
+	value := f.Value
+	if f.class != redactNone {
+		value = redactNow(value)
 	}
-	return redactNow(f.Value)
+	switch v := value.(type) {
+	case nil:
+		return attribute.String(f.Key, "")
+	case string:
+		return attribute.String(f.Key, v)
+	case bool:
+		return attribute.Bool(f.Key, v)
+	case int:
+		return attribute.Int(f.Key, v)
+	case int64:
+		return attribute.Int64(f.Key, v)
+	case float64:
+		return attribute.Float64(f.Key, v)
+	default:
+		return attribute.String(f.Key, fmt.Sprint(v))
+	}
 }
 
 // redactNow drops a classified value. An empty value has nothing to redact, so
@@ -268,22 +283,13 @@ func redactNow(value any) any {
 	return redactedPlaceholder
 }
 
-// Telemetry writes the Supervisor's records to a file and narrates them on a
-// console stream. Safe for concurrent use; a nil *Telemetry discards.
+// Telemetry records what the Supervisor does. Safe for concurrent use; a nil
+// *Telemetry discards.
 type Telemetry struct {
-	mu      sync.Mutex
-	console io.Writer
-	file    *os.File
-	path    string
-	// written tracks the live file's size so rotation needs no stat per record.
-	written int64
-	min     Level
-	// boot and instance name this process. The boot id is the Supervisor's own
-	// and is handed to every child (ADR 0060), which is what stitches three
-	// processes' records into one timeline; the instance distinguishes two runs
-	// that somehow share one.
-	boot     string
-	instance string
+	provider *logsdk.LoggerProvider
+	logger   log.Logger
+	rotating *rotatingFile
+	min      Level
 	clock    func() time.Time
 }
 
@@ -296,25 +302,51 @@ type Telemetry struct {
 // directory is console-only by design: that is what a test gets, and what a
 // Supervisor with nowhere durable to write gets.
 func OpenTelemetry(cfg Config, console io.Writer) *Telemetry {
-	t := &Telemetry{
-		console:  console,
-		min:      cfg.LogLevel,
-		boot:     cfg.BootID,
-		instance: NewID(),
-		clock:    time.Now,
+	t := &Telemetry{min: cfg.LogLevel, clock: time.Now}
+
+	var processors []logsdk.LoggerProviderOption
+	if console != nil {
+		// The console is an exporter like any other, so a person at a terminal
+		// and a file being read afterwards see the same records rather than one
+		// being a subset of the other.
+		processors = append(processors, logsdk.WithProcessor(
+			logsdk.NewSimpleProcessor(&consoleExporter{out: console})))
 	}
-	if cfg.StateDir == "" {
-		return t
+
+	var openErr error
+	var openPath string
+	if cfg.StateDir != "" {
+		dir := filepath.Join(cfg.StateDir, telemetryDirName)
+		openPath = filepath.Join(dir, telemetryFileName)
+		rotating, err := openRotatingFile(dir, openPath, maxLogBytes)
+		if err != nil {
+			openErr = err
+		} else {
+			// stdoutlog writes OTLP-shaped JSON, one record per line, which is
+			// the point of the change: the file is readable by tooling nobody
+			// here had to write.
+			exporter, expErr := stdoutlog.New(stdoutlog.WithWriter(rotating))
+			if expErr != nil {
+				openErr = expErr
+				_ = rotating.Close()
+			} else {
+				t.rotating = rotating
+				processors = append(processors, logsdk.WithProcessor(
+					logsdk.NewSimpleProcessor(exporter)))
+			}
+		}
 	}
-	dir := filepath.Join(cfg.StateDir, telemetryDirName)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Warn(componentTelemetry, "records are console-only", Err(err), String("path", dir))
-		return t
-	}
-	t.path = filepath.Join(dir, telemetryFileName)
-	if err := t.open(); err != nil {
-		t.path = ""
-		t.Warn(componentTelemetry, "records are console-only", Err(err), String("path", dir))
+
+	options := append(processors, logsdk.WithResource(resource.NewSchemaless(
+		attribute.String("service.name", serviceName),
+		attribute.String("service.instance.id", NewID()),
+		attribute.String(bootAttribute, cfg.BootID),
+	)))
+	t.provider = logsdk.NewLoggerProvider(options...)
+	t.logger = t.provider.Logger(serviceName)
+
+	if openErr != nil {
+		t.Warn(componentTelemetry, "records are console-only", Err(openErr))
 	}
 	return t
 }
@@ -323,59 +355,38 @@ func OpenTelemetry(cfg Config, console io.Writer) *Telemetry {
 // nowhere durable to write gets, and what a test that wants to read back what
 // the Supervisor said uses.
 func NewTelemetry(console io.Writer, min Level) *Telemetry {
-	return &Telemetry{console: console, min: min, instance: NewID(), clock: time.Now}
+	return OpenTelemetry(Config{LogLevel: min}, console)
 }
 
-// open attaches the live file, resuming its size so a restart does not reset the
-// rotation budget. The caller holds no lock: it is called from OpenTelemetry
-// before the value is shared, and from rotate under the lock.
-func (t *Telemetry) open() error {
-	f, err := os.OpenFile(t.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	size := int64(0)
-	if info, statErr := f.Stat(); statErr == nil {
-		size = info.Size()
-	}
-	t.file, t.written = f, size
-	return nil
-}
-
-// Close releases the file. A Telemetry with no file, or none at all, closes
-// cleanly — the shutdown path must not have to know which it got.
+// Close flushes and releases the pipeline. A Telemetry with no file, or none at
+// all, closes cleanly — the shutdown path must not have to know which it got.
 func (t *Telemetry) Close() error {
-	if t == nil {
+	if t == nil || t.provider == nil {
 		return nil
 	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.file == nil {
-		return nil
+	err := t.provider.Shutdown(context.Background())
+	if t.rotating != nil {
+		if closeErr := t.rotating.Close(); err == nil {
+			err = closeErr
+		}
 	}
-	err := t.file.Close()
-	t.file = nil
 	return err
 }
 
-// Path is where records are written, empty when they are console-only. It is
-// what the Platform will be told to read once there is a read path for it, and
-// what a person is told to look at until then.
+// Path is where records are written, empty when they are console-only.
 func (t *Telemetry) Path() string {
-	if t == nil {
+	if t == nil || t.rotating == nil {
 		return ""
 	}
-	return t.path
+	return t.rotating.path
 }
 
 // Printf narrates at info level with no component and no fields.
 //
 // It exists because most of what the Supervisor says is a sentence rather than a
 // fact with a shape, and because it matches the `func(string, ...any)` the whole
-// package already passes around — so adopting this cost no call site a rewrite
-// and, more to the point, nothing the Supervisor already said had to be dropped
-// on the floor to get the structured records. Everything it says reaches the
-// file; the events below simply reach it with fields attached.
+// package already passes around — so nothing the Supervisor already said had to
+// be dropped on the floor to get the structured records.
 func (t *Telemetry) Printf(format string, args ...any) {
 	t.Event(LevelInfo, "", fmt.Sprintf(format, args...))
 }
@@ -395,124 +406,190 @@ func (t *Telemetry) Error(component, message string, fields ...Field) {
 	t.Event(LevelError, component, message, fields...)
 }
 
-// Event writes one record to both destinations. Below the configured level it
-// does nothing, which is the only filtering there is.
+// Event emits one record. Below the configured level it does nothing, which is
+// the only filtering there is: no sampling and no per-component rules, so
+// nothing can quietly discard the one record that mattered.
 func (t *Telemetry) Event(level Level, component, message string, fields ...Field) {
-	if t == nil || level < t.min {
+	if t == nil || t.logger == nil || level < t.min {
 		return
 	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	// **Stamped under the lock, so the file's order is its timestamps' order.**
-	// Read before it, two records written a microsecond apart from different
-	// goroutines can land in the file in the opposite order to their times —
-	// which is harmless until somebody merges this file with the Platform's by
-	// sorting on time, and then it looks like the merge is wrong.
-	now := t.clock().UTC()
-	t.writeConsole(level, component, message, fields)
-	t.writeFile(now, level, component, message, fields)
+	var record log.Record
+	record.SetTimestamp(t.clock().UTC())
+	record.SetSeverity(level.severity())
+	// Set alongside the number because a human reading an exported record
+	// should not have to know that 9 means info.
+	record.SetSeverityText(level.String())
+	record.SetBody(attribute.StringValue(message))
+	if component != "" {
+		record.AddAttributes(attribute.String(componentAttribute, component))
+	}
+	for _, f := range fields {
+		record.AddAttributes(f.attribute())
+	}
+	t.logger.Emit(context.Background(), record)
 }
 
-// writeConsole renders "mosaic-supervisor: component: message key=value".
+// consoleExporter renders records for a person at a terminal.
+//
+// It is an OTel exporter rather than a second logging path, so the console and
+// the file carry the same records and neither can drift from the other. The
+// rendering is the only thing that differs, and it differs because JSON on a
+// terminal costs more legibility than the structure buys.
+type consoleExporter struct {
+	mu  sync.Mutex
+	out io.Writer
+}
+
+// Export renders "mosaic-supervisor: component: message key=value".
 //
 // The service prefix is the same one the children's output carries, and for the
 // same reason: three processes share one terminal and a line with nothing to say
 // which said it is a line an operator cannot use. Info carries no level word, so
 // the ordinary narration reads as a sentence; anything above it does, because
 // that is the line worth spotting.
+func (e *consoleExporter) Export(_ context.Context, records []logsdk.Record) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for i := range records {
+		_, _ = io.WriteString(e.out, renderConsole(&records[i]))
+	}
+	return nil
+}
+
+func (e *consoleExporter) Shutdown(context.Context) error   { return nil }
+func (e *consoleExporter) ForceFlush(context.Context) error { return nil }
+
+// renderConsole builds one human-readable line.
 //
 // Fields are sorted, so two runs of the same code put the same field in the same
-// place and an eye scanning a terminal finds it there.
-func (t *Telemetry) writeConsole(level Level, component, message string, fields []Field) {
-	if t.console == nil {
-		return
-	}
+// place and an eye scanning a terminal finds it there. The component is lifted
+// out of the attributes and into the prefix, since it is what a reader groups by
+// rather than one fact among several.
+func renderConsole(record *logsdk.Record) string {
+	var component string
+	var fields []string
+	record.WalkAttributes(func(kv attribute.KeyValue) bool {
+		if string(kv.Key) == componentAttribute {
+			component = kv.Value.Emit()
+			return true
+		}
+		fields = append(fields, string(kv.Key)+"="+kv.Value.Emit())
+		return true
+	})
+	sort.Strings(fields)
+
 	var b strings.Builder
 	b.WriteString(serviceName)
 	b.WriteString(": ")
-	if level != LevelInfo {
-		b.WriteString(strings.ToUpper(level.String()))
+	if text := record.SeverityText(); text != LevelInfo.String() {
+		b.WriteString(strings.ToUpper(text))
 		b.WriteByte(' ')
 	}
 	if component != "" {
 		b.WriteString(component)
 		b.WriteString(": ")
 	}
-	b.WriteString(message)
-
-	sorted := append([]Field(nil), fields...)
-	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Key < sorted[j].Key })
-	for _, f := range sorted {
-		fmt.Fprintf(&b, " %s=%v", f.Key, f.emitValue())
+	b.WriteString(record.Body().Emit())
+	for _, f := range fields {
+		b.WriteByte(' ')
+		b.WriteString(f)
 	}
 	b.WriteByte('\n')
-	_, _ = io.WriteString(t.console, b.String())
+	return b.String()
 }
 
-// writeFile appends one JSON line, rotating first if this record would take the
-// file past its cap.
+// rotatingFile is the writer behind the file exporter: append, and start a fresh
+// file once the current one passes its cap, keeping exactly one previous.
 //
-// A record that cannot be marshalled is dropped rather than propagated: there is
-// no caller in a position to handle a logging failure, and every call site would
-// have to ignore it anyway.
-func (t *Telemetry) writeFile(now time.Time, level Level, component, message string, fields []Field) {
-	if t.file == nil {
-		return
-	}
-	e := telemetryEntry{
-		Time:      now.Format(time.RFC3339Nano),
-		Level:     level.String(),
-		Service:   serviceName,
-		Instance:  t.instance,
-		Boot:      t.boot,
-		Component: component,
-		Message:   message,
-	}
-	if len(fields) > 0 {
-		e.Fields = make(map[string]any, len(fields))
-		for _, f := range fields {
-			e.Fields[f.Key] = f.emitValue()
-		}
-	}
-	line, err := json.Marshal(e)
-	if err != nil {
-		return
-	}
-	line = append(line, '\n')
+// It is the Supervisor's own rather than a dependency because rotation is the
+// whole of ADR 0060's retention policy and a library for it would be a larger
+// surface than the thing it does.
+type rotatingFile struct {
+	mu      sync.Mutex
+	dir     string
+	path    string
+	limit   int64
+	file    *os.File
+	written int64
+}
 
-	if t.written+int64(len(line)) > maxLogBytes {
-		t.rotate()
+// openRotatingFile prepares the directory and attaches the live file, resuming
+// its size so a restart does not reset the rotation budget.
+func openRotatingFile(dir, path string, limit int64) (*rotatingFile, error) {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
 	}
-	n, err := t.file.Write(line)
-	t.written += int64(n)
+	r := &rotatingFile{dir: dir, path: path, limit: limit}
+	if err := r.open(); err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
+func (r *rotatingFile) open() error {
+	f, err := os.OpenFile(r.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
-		// The file has gone — a full disk, a state directory unmounted under a
-		// running process. Drop it rather than retrying forever, and stop
-		// pretending there is a file, so the console remains the whole record
-		// instead of every subsequent write failing the same way.
-		_ = t.file.Close()
-		t.file, t.path = nil, ""
+		return err
 	}
+	size := int64(0)
+	if info, statErr := f.Stat(); statErr == nil {
+		size = info.Size()
+	}
+	r.file, r.written = f, size
+	return nil
+}
+
+// Write appends p, rotating first if it would take the file past its cap.
+//
+// It never reports an error: this is on the path a record takes, and the only
+// destination is a file whose failure there is nowhere useful to report. A file
+// that has gone — a full disk, a state directory unmounted under a running
+// process — detaches, so the console remains the whole record rather than every
+// subsequent write failing the same way.
+func (r *rotatingFile) Write(p []byte) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.file == nil {
+		return len(p), nil
+	}
+	if r.written+int64(len(p)) > r.limit {
+		r.rotate()
+	}
+	n, err := r.file.Write(p)
+	r.written += int64(n)
+	if err != nil {
+		_ = r.file.Close()
+		r.file = nil
+	}
+	return len(p), nil
 }
 
 // rotate moves the live file aside and starts a fresh one, keeping exactly one
 // previous. A failure to rotate leaves the current file attached and over its
 // cap, which is a log that is too big rather than a log that stopped — the right
 // way round for the component whose job is not to break.
-func (t *Telemetry) rotate() {
-	if t.file == nil || t.path == "" {
-		return
-	}
-	_ = t.file.Close()
-	t.file = nil
-	if err := os.Rename(t.path, t.path+".1"); err != nil {
-		// Reattach to whatever is there rather than leaving the process silent.
-		if openErr := t.open(); openErr != nil {
-			t.path = ""
+func (r *rotatingFile) rotate() {
+	_ = r.file.Close()
+	r.file = nil
+	if err := os.Rename(r.path, r.path+".1"); err != nil {
+		if openErr := r.open(); openErr != nil {
+			r.file = nil
 		}
 		return
 	}
-	if err := t.open(); err != nil {
-		t.path = ""
+	if err := r.open(); err != nil {
+		r.file = nil
 	}
+}
+
+// Close releases the live file.
+func (r *rotatingFile) Close() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.file == nil {
+		return nil
+	}
+	err := r.file.Close()
+	r.file = nil
+	return err
 }

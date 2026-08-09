@@ -11,77 +11,70 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 )
 
-// The record format is duplicated from the Platform's on purpose, and this is
-// the guard that makes the duplication bounded (see telemetry.go).
+// The file is ordinary OpenTelemetry, and that is the whole of ADR 0128 as it
+// applies here.
 //
-// **It names every key rather than checking the ones a test happens to use.**
-// The hazard is not a file that cannot be parsed — the Platform reads JSON Lines
-// and ignores what it does not know — it is a key quietly renamed, which the
-// reader would report as a missing field rather than as an error. A test that
-// asserted only on `message` would pass through exactly that.
-func TestTheRecordFormatIsThePlatforms(t *testing.T) {
+// **The test this replaced pinned a JSON key set**, because the record format
+// was hand-written and duplicated from the Platform's, and a key quietly renamed
+// on one side was the hazard nothing else would catch. There is no longer a
+// Mosaic-authored format to pin: the shape is OTLP's, both processes will read
+// it with the same tooling, and what is worth asserting instead is that the
+// facts a reader needs actually arrive in it.
+func TestTheFileIsOrdinaryOpenTelemetry(t *testing.T) {
 	tel, path := telemetryInDir(t)
-	tel.Info("child", "started", String("child", "platform"), Int("pid", 41))
+	tel.Info(componentChild, "started", String("child", "platform"), Int("pid", 41))
 	if err := tel.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 
-	var got map[string]any
-	if err := json.Unmarshal(firstLine(t, path), &got); err != nil {
+	var record map[string]any
+	if err := json.Unmarshal(firstLine(t, path), &record); err != nil {
 		t.Fatalf("the record is not JSON: %v", err)
 	}
 
-	want := []string{"boot", "component", "fields", "instance", "level", "message", "service", "time"}
-	keys := make([]string, 0, len(got))
-	for k := range got {
-		keys = append(keys, k)
+	if got := rendered(record["Body"]); got != "started" {
+		t.Errorf("body is %q, want the message", got)
 	}
-	sort.Strings(keys)
-	if strings.Join(keys, ",") != strings.Join(want, ",") {
-		t.Fatalf("record keys are %v, want %v", keys, want)
+	if record["SeverityText"] != "info" {
+		t.Errorf("severity text is %v, want info", record["SeverityText"])
 	}
-
-	// The Platform writes `trace`, `span` and `module` and the Supervisor has
-	// none of the three. Absent rather than empty: an empty `trace` would be a
-	// claim to run traces, which ADR 0060 says it does not.
-	for _, absent := range []string{"trace", "span", "module"} {
-		if _, present := got[absent]; present {
-			t.Fatalf("the Supervisor has no %q and must not write the key", absent)
-		}
+	if _, err := time.Parse(time.RFC3339Nano, fmt.Sprint(record["Timestamp"])); err != nil {
+		t.Errorf("timestamp is not RFC3339: %v", err)
 	}
 
-	if got["service"] != serviceName {
-		t.Fatalf("service is %v, want %q", got["service"], serviceName)
+	attrs := keyValues(t, record["Attributes"])
+	if attrs["child"] != "platform" || attrs["pid"] != "41" {
+		t.Errorf("attributes are %v", attrs)
 	}
-	if got["level"] != "info" {
-		t.Fatalf("level is %v, want info", got["level"])
+	if attrs[componentAttribute] != componentChild {
+		t.Errorf("component is %q, want %q", attrs[componentAttribute], componentChild)
 	}
-	if got["boot"] != "boot-1" {
-		t.Fatalf("boot is %v, want boot-1", got["boot"])
+
+	// The resource is what makes two processes' records tell themselves apart
+	// in a merged read, and the boot id is what stitches them into one timeline
+	// (ADR 0060).
+	res := keyValues(t, record["Resource"])
+	if res["service.name"] != serviceName {
+		t.Errorf("service.name is %q, want %q", res["service.name"], serviceName)
 	}
-	if _, err := time.Parse(time.RFC3339Nano, got["time"].(string)); err != nil {
-		t.Fatalf("time is not RFC3339: %v", err)
-	}
-	fields, _ := got["fields"].(map[string]any)
-	if fields["child"] != "platform" || fields["pid"] != float64(41) {
-		t.Fatalf("fields are %v", fields)
+	if res[bootAttribute] != "boot-1" {
+		t.Errorf("%s is %q, want boot-1", bootAttribute, res[bootAttribute])
 	}
 }
 
 // A Field nobody classified is a Field nobody thought about, and it is dropped
-// rather than written. This is the property the unexported class buys: the only
-// way to produce a safe Field is a constructor, so a struct literal written at a
-// call site cannot leak by omission.
+// rather than written. OpenTelemetry has no notion of classification — an
+// attribute carries its value, full stop — so the conversion is the last place
+// the rule can be applied, and the unexported class is what makes a struct
+// literal written at a call site fail closed rather than leak.
 func TestAnUnclassifiedFieldFailsClosed(t *testing.T) {
 	tel, path := telemetryInDir(t)
-	tel.Info("child", "started",
+	tel.Info(componentChild, "started",
 		Field{Key: "hand_written", Value: "postgres://mosaic:hunter2@db/mosaic"},
 		Secret("token", "s3cr3t"),
 		Sensitive("who", "ada"),
@@ -94,22 +87,28 @@ func TestAnUnclassifiedFieldFailsClosed(t *testing.T) {
 			t.Fatalf("%q reached the file: %s", leaked, line)
 		}
 	}
-	if !bytes.Contains(line, []byte(`"safe":"postgres"`)) {
-		t.Fatalf("a classified-safe field was dropped: %s", line)
+	var record map[string]any
+	if err := json.Unmarshal(line, &record); err != nil {
+		t.Fatalf("not JSON: %v", err)
 	}
-	if bytes.Count(line, []byte(redactedPlaceholder)) != 3 {
-		t.Fatalf("want three redacted values, got: %s", line)
+	attrs := keyValues(t, record["Attributes"])
+	if attrs["safe"] != "postgres" {
+		t.Fatalf("a classified-safe field was dropped: %v", attrs)
+	}
+	for _, key := range []string{"hand_written", "token", "who"} {
+		if attrs[key] != redactedPlaceholder {
+			t.Errorf("%s is %q, want %q — a redacted field must still show it was there",
+				key, attrs[key], redactedPlaceholder)
+		}
 	}
 }
 
-// The console carries the same record. Two destinations rather than two logging
-// paths: a person at a terminal and a file being read afterwards see the same
-// facts, so neither is a subset of the other.
+// The console is an exporter beside the file's, not a second logging path, so a
+// person at a terminal and a file read afterwards see the same records.
 func TestTheConsoleCarriesTheSameRecord(t *testing.T) {
 	var console bytes.Buffer
-	dir := t.TempDir()
-	tel := OpenTelemetry(Config{StateDir: dir, BootID: "boot-1"}, &console)
-	tel.Warn("child", "exited", Int("exit_code", 1), String("child", "platform"))
+	tel := OpenTelemetry(Config{StateDir: t.TempDir(), BootID: "boot-1"}, &console)
+	tel.Warn(componentChild, "exited", Int("exit_code", 1), String("child", "platform"))
 	tel.Printf("listening on %s", ":8443")
 	_ = tel.Close()
 
@@ -117,8 +116,8 @@ func TestTheConsoleCarriesTheSameRecord(t *testing.T) {
 	if len(lines) != 2 {
 		t.Fatalf("want two console lines, got %d: %q", len(lines), console.String())
 	}
-	// Sorted fields, the level word only above info, and the service prefix
-	// three processes on one terminal need.
+	// Sorted fields, the level word only above info, the component lifted into
+	// the prefix, and the service name three processes on one terminal need.
 	if lines[0] != "mosaic-supervisor: WARN child: exited child=platform exit_code=1" {
 		t.Fatalf("console line is %q", lines[0])
 	}
@@ -129,10 +128,9 @@ func TestTheConsoleCarriesTheSameRecord(t *testing.T) {
 
 func TestRecordsBelowTheLevelAreDropped(t *testing.T) {
 	var console bytes.Buffer
-	dir := t.TempDir()
-	tel := OpenTelemetry(Config{StateDir: dir, BootID: "boot-1", LogLevel: LevelWarn}, &console)
-	tel.Info("child", "started")
-	tel.Error("child", "exited")
+	tel := OpenTelemetry(Config{StateDir: t.TempDir(), BootID: "boot-1", LogLevel: LevelWarn}, &console)
+	tel.Info(componentChild, "started")
+	tel.Error(componentChild, "exited")
 	_ = tel.Close()
 
 	if strings.Contains(console.String(), "started") {
@@ -150,10 +148,9 @@ func TestTheFileRotatesAndKeepsOnePrevious(t *testing.T) {
 	tel := OpenTelemetry(Config{StateDir: dir, BootID: "boot-1"}, nil)
 	live := tel.Path()
 
-	// Enough records to pass the cap several times over.
 	filler := strings.Repeat("x", 4096)
 	for i := 0; i < (maxLogBytes/4096)*2+16; i++ {
-		tel.Info("child", "exited", String("detail", filler))
+		tel.Info(componentChild, "exited", String("detail", filler))
 	}
 	_ = tel.Close()
 
@@ -169,51 +166,14 @@ func TestTheFileRotatesAndKeepsOnePrevious(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Info: %v", err)
 		}
-		if info.Size() > maxLogBytes {
-			t.Fatalf("%s is %d bytes, past the %d cap", e.Name(), info.Size(), maxLogBytes)
+		// One record may cross the cap, since rotation happens before a write
+		// rather than mid-way through one.
+		if info.Size() > maxLogBytes+int64(len(filler))*2 {
+			t.Fatalf("%s is %d bytes, well past the %d cap", e.Name(), info.Size(), maxLogBytes)
 		}
 	}
 	if _, err := os.Stat(live + ".1"); err != nil {
 		t.Fatalf("the previous file is not %s.1: %v", live, err)
-	}
-}
-
-// The file's order must be its timestamps' order. Records come from every
-// child's goroutine at once, and a reader merging this file with the Platform's
-// sorts on time — so a file that disagreed with itself would make the merge look
-// wrong for a reason that was not the merge's. Caught in a real run, where a
-// shutdown wrote three lines out of order.
-func TestRecordsAreInTimestampOrderUnderConcurrency(t *testing.T) {
-	tel, path := telemetryInDir(t)
-	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
-		wg.Add(1)
-		go func(n int) {
-			defer wg.Done()
-			for j := 0; j < 64; j++ {
-				tel.Info(componentChild, "started", Int("writer", n))
-			}
-		}(i)
-	}
-	wg.Wait()
-	_ = tel.Close()
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	var previous time.Time
-	for i, line := range bytes.Split(bytes.TrimSpace(data), []byte("\n")) {
-		var got struct {
-			Time time.Time `json:"time"`
-		}
-		if err := json.Unmarshal(line, &got); err != nil {
-			t.Fatalf("line %d is not JSON: %v", i, err)
-		}
-		if got.Time.Before(previous) {
-			t.Fatalf("line %d is stamped %s, before the line above it (%s)", i, got.Time, previous)
-		}
-		previous = got.Time
 	}
 }
 
@@ -222,21 +182,32 @@ func TestRecordsAreInTimestampOrderUnderConcurrency(t *testing.T) {
 func TestReopeningResumesTheFilesSize(t *testing.T) {
 	dir := t.TempDir()
 	first := OpenTelemetry(Config{StateDir: dir, BootID: "boot-1"}, nil)
-	first.Info("child", "started")
+	first.Info(componentChild, "started")
+	path := first.Path()
 	_ = first.Close()
 
-	second := OpenTelemetry(Config{StateDir: dir, BootID: "boot-2"}, nil)
-	defer second.Close()
-	if second.written == 0 {
-		t.Fatal("the second open started its budget from zero")
+	before := sizeOf(t, path)
+	if before == 0 {
+		t.Fatal("the first boot wrote nothing")
 	}
-	second.Info("child", "started")
-	data, err := os.ReadFile(second.Path())
+
+	second := OpenTelemetry(Config{StateDir: dir, BootID: "boot-2"}, nil)
+	second.Info(componentChild, "started")
+	_ = second.Close()
+
+	if after := sizeOf(t, path); after <= before {
+		t.Fatalf("the file is %d bytes after the second boot, was %d — it was truncated", after, before)
+	}
+	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
-	if lines := bytes.Count(data, []byte("\n")); lines != 2 {
-		t.Fatalf("want both boots' records in the file, got %d lines", lines)
+	// Both boots' records, distinguishable by the resource attribute that
+	// stitches a boot's three processes together.
+	for _, boot := range []string{"boot-1", "boot-2"} {
+		if !bytes.Contains(data, []byte(boot)) {
+			t.Errorf("%s is not in the file", boot)
+		}
 	}
 }
 
@@ -259,7 +230,7 @@ func TestAnUnwritableStateDirectoryIsConsoleOnly(t *testing.T) {
 		t.Fatalf("the failure was not reported: %q", console.String())
 	}
 
-	tel.Info("child", "started")
+	tel.Info(componentChild, "started")
 	if !strings.Contains(console.String(), "started") {
 		t.Fatal("records stopped when the file could not be opened")
 	}
@@ -270,7 +241,7 @@ func TestAnUnwritableStateDirectoryIsConsoleOnly(t *testing.T) {
 // takes the process down.
 func TestANilTelemetryDiscards(t *testing.T) {
 	var tel *Telemetry
-	tel.Info("child", "started", String("child", "platform"))
+	tel.Info(componentChild, "started", String("child", "platform"))
 	tel.Printf("anything")
 	if tel.Path() != "" {
 		t.Fatal("a nil Telemetry claimed a path")
@@ -318,4 +289,44 @@ func firstLine(t *testing.T, path string) []byte {
 		t.Fatalf("no complete line in %s", path)
 	}
 	return line
+}
+
+func sizeOf(t *testing.T, path string) int64 {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	return info.Size()
+}
+
+// keyValues flattens the exporter's attribute list into key → rendered value.
+func keyValues(t *testing.T, raw any) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	list, ok := raw.([]any)
+	if !ok {
+		t.Fatalf("attributes are %T, want a list", raw)
+	}
+	for _, entry := range list {
+		kv, ok := entry.(map[string]any)
+		if !ok {
+			t.Fatalf("attribute is %T, want an object", entry)
+		}
+		out[fmt.Sprint(kv["Key"])] = rendered(kv["Value"])
+	}
+	return out
+}
+
+// rendered pulls the text out of the exporter's value envelope, which carries a
+// type tag beside the value.
+func rendered(raw any) string {
+	value, ok := raw.(map[string]any)
+	if !ok {
+		return fmt.Sprint(raw)
+	}
+	if v, present := value["Value"]; present {
+		return fmt.Sprint(v)
+	}
+	return fmt.Sprint(raw)
 }

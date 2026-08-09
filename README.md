@@ -45,14 +45,24 @@ full history via `git subtree split`.
   report is the process that is broken — a migration that will not run, a
   database that is not there, a Generation that starts and immediately dies —
   and the Supervisor is the process that survives all of it *and* the one that
-  caused the transition. It writes JSON Lines to
-  `<state-dir>/logs/mosaic-supervisor.log` in the Platform's own record format,
-  under the same boot id, so one reader parses both: child starts with their
-  pid, exits with their code and how long they lasted, the run of failures
-  behind a crash loop, readiness transitions, and Generation selection,
-  activation and revert. Size-capped rotation keeping one previous file is the
-  whole retention policy. There is no database, no exporter and no collector,
-  because every one of those can be unavailable at the moment it is needed.
+  caused the transition. It writes **OpenTelemetry** records to
+  `<state-dir>/logs/mosaic-supervisor.log`, one JSON object per line, under a
+  resource carrying `service.name` and the boot id its children share — so any
+  collector reads it and nobody here wrote a format. What goes in is what a
+  process cannot report about itself: child starts with their pid, exits with
+  their code and how long they lasted, the run of failures behind a crash loop,
+  readiness transitions, and Generation selection, activation and revert.
+  Size-capped rotation keeping one previous file is the whole retention policy.
+
+  **A file exporter and never OTLP.**
+  [ADR 0060](https://github.com/mosaic-media/architecture/blob/main/docs/adr/0060-the-supervisor-observes-independently.md)
+  rejected shipping the OTel SDK because an exporter needs a running collector —
+  the same aliveness assumption, relocated — and that objection stands: nothing
+  here dials, resolves or waits on anything, which is the property that matters
+  for the component whose job is to still work.
+  [ADR 0128](https://github.com/mosaic-media/architecture/blob/main/docs/adr/0128-opentelemetry-is-the-telemetry-implementation.md)
+  admitted the SDK on exactly that basis, and ended the third hand-written copy
+  of Mosaic's telemetry.
 - **Attributes their output.** Three processes share one terminal, so each
   child's console lines are prefixed with its name. This is safe precisely
   because it is the console stream: the Platform's structured records go to
