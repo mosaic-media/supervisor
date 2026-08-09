@@ -1,0 +1,35 @@
+name: verify
+
+# The Supervisor's gate, which it did not have until this file existed.
+#
+# Every other Mosaic repository has run its container gate on every push since
+# it was written; this one was extracted from `platform` with its history and
+# arrived without workflows. So the process a supervised install installs — the
+# one whose whole guarantee is running when the Platform cannot — was the one
+# nothing checked (ADR 0121 names this as the first gap it implies).
+#
+# It runs `docker-compose.test.yml` rather than a transcription of it, so what
+# refuses a push is the command a contributor runs: gofmt, vet, build and the
+# tests, then the same again with `-tags mosaicdev` for the development-key
+# path.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Called by release.yml, so a tag runs exactly these gates rather than a
+  # second copy that could drift.
+  workflow_call:
+
+# Nothing here reads the token — it checks out and runs a container. Stated
+# rather than left to the repository default because a called workflow inherits
+# the caller's, and release.yml needs `contents: write` for its own job.
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Container gate
+        run: docker compose -f docker-compose.test.yml run --rm test
