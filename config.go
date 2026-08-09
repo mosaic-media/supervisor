@@ -40,6 +40,9 @@ const (
 	// there is: no sampling, no per-component rules, nothing that could quietly
 	// discard the one record that mattered.
 	logLevelEnv = "MOSAIC_SUPERVISOR_LOG_LEVEL"
+	// Where to send records as well as the file. Empty is the default and
+	// means nowhere — see Config.OTLPEndpoint.
+	otlpEndpointEnv = "MOSAIC_SUPERVISOR_OTLP_ENDPOINT"
 )
 
 const (
@@ -111,6 +114,21 @@ type Config struct {
 	// rejected: a typo in a log level must not silence the one process still
 	// able to explain why nothing else started.
 	LogLevel Level
+	// OTLPEndpoint is an OpenTelemetry collector to send records to, as well as
+	// the file — never instead of it (ADR 0128).
+	//
+	// **Empty by default, and that is the decision rather than an omission.**
+	// [ADR 0060](https://github.com/mosaic-media/architecture/blob/main/docs/adr/0060-the-supervisor-observes-independently.md)
+	// refused an exporter that needs a running collector, because the Supervisor
+	// may assume nothing else is up — and that reasoning stands. What ADR 0128
+	// changed is that OTLP became an *option an operator takes*, so an install
+	// with a collector gets its lifecycle in the same place as everything else
+	// while an install without one is unaffected and unconfigured.
+	//
+	// The file is written either way. A collector that is down, unreachable or
+	// misconfigured costs records in the collector and none on disk, which is
+	// the only acceptable failure direction here.
+	OTLPEndpoint string
 }
 
 // LoadConfig reads configuration from the environment, validating rather than
@@ -118,14 +136,15 @@ type Config struct {
 // points at the wrong layer.
 func LoadConfig(getenv func(string) string) (Config, error) {
 	cfg := Config{
-		ListenAddr: strings.TrimSpace(getenv(listenAddrEnv)),
-		CertFile:   strings.TrimSpace(getenv(certFileEnv)),
-		KeyFile:    strings.TrimSpace(getenv(keyFileEnv)),
-		RuntimeDir: strings.TrimSpace(getenv(runtimeDirEnv)),
-		BootID:     strings.TrimSpace(getenv(bootIDEnv)),
-		StateDir:   strings.TrimSpace(getenv(stateDirEnv)),
-		ReleaseURL: strings.TrimSpace(getenv(releaseURLEnv)),
-		LogLevel:   ParseLevel(getenv(logLevelEnv)),
+		ListenAddr:   strings.TrimSpace(getenv(listenAddrEnv)),
+		CertFile:     strings.TrimSpace(getenv(certFileEnv)),
+		KeyFile:      strings.TrimSpace(getenv(keyFileEnv)),
+		RuntimeDir:   strings.TrimSpace(getenv(runtimeDirEnv)),
+		BootID:       strings.TrimSpace(getenv(bootIDEnv)),
+		StateDir:     strings.TrimSpace(getenv(stateDirEnv)),
+		ReleaseURL:   strings.TrimSpace(getenv(releaseURLEnv)),
+		LogLevel:     ParseLevel(getenv(logLevelEnv)),
+		OTLPEndpoint: strings.TrimSpace(getenv(otlpEndpointEnv)),
 	}
 	if cfg.ListenAddr == "" {
 		cfg.ListenAddr = defaultListenAddr

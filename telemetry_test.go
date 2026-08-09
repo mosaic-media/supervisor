@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -329,4 +331,67 @@ func rendered(raw any) string {
 		return fmt.Sprint(v)
 	}
 	return fmt.Sprint(raw)
+}
+
+// A collector that is down must cost records in the collector and none on disk.
+// An install whose observability backend went away must not also lose the local
+// account of why its Platform will not start (ADR 0060, ADR 0128).
+func TestAnUnreachableCollectorDoesNotCostTheFile(t *testing.T) {
+	dir := t.TempDir()
+	var console bytes.Buffer
+	// A port nothing is listening on.
+	tel := OpenTelemetry(Config{
+		StateDir:     dir,
+		BootID:       "boot-1",
+		OTLPEndpoint: "http://127.0.0.1:1",
+	}, &console)
+
+	tel.Error(componentChild, "is not coming up and is still being retried",
+		String("child", "platform"))
+	path := tel.Path()
+	_ = tel.Close()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !bytes.Contains(data, []byte("is not coming up")) {
+		t.Fatal("the record did not reach the file while the collector was unreachable")
+	}
+	if !strings.Contains(console.String(), "is not coming up") {
+		t.Fatal("the record did not reach the console either")
+	}
+}
+
+// And a collector that is up receives them, so the wiring is real rather than
+// merely configured.
+func TestAReachableCollectorReceivesRecords(t *testing.T) {
+	received := make(chan string, 8)
+	collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received <- r.URL.Path
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer collector.Close()
+
+	tel := OpenTelemetry(Config{
+		StateDir:     t.TempDir(),
+		BootID:       "boot-1",
+		OTLPEndpoint: collector.URL,
+	}, nil)
+	tel.Info(componentChild, "started", String("child", "platform"))
+	// Shutdown flushes the batch, which is why this needs no sleep.
+	if err := tel.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	select {
+	case path := <-received:
+		// The OTLP/HTTP logs path, so this is the protocol rather than a POST
+		// that happened to arrive somewhere.
+		if path != "/v1/logs" {
+			t.Fatalf("the collector was called at %q, want /v1/logs", path)
+		}
+	default:
+		t.Fatal("nothing reached the collector")
+	}
 }

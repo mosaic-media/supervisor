@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutlog"
 	"go.opentelemetry.io/otel/log"
 	logsdk "go.opentelemetry.io/otel/sdk/log"
@@ -313,7 +315,7 @@ func OpenTelemetry(cfg Config, console io.Writer) *Telemetry {
 			logsdk.NewSimpleProcessor(&consoleExporter{out: console})))
 	}
 
-	var openErr error
+	var openErr, otlpErr error
 	var openPath string
 	if cfg.StateDir != "" {
 		dir := filepath.Join(cfg.StateDir, telemetryDirName)
@@ -337,6 +339,26 @@ func OpenTelemetry(cfg Config, console io.Writer) *Telemetry {
 		}
 	}
 
+	// **Additive, and never a replacement for the file.** A collector that is
+	// down, unreachable or misconfigured must cost records in the collector and
+	// none on disk — an install whose observability backend went away must not
+	// also lose the local account of why its Platform will not start.
+	//
+	// Batched rather than simple, unlike the two local exporters: this one is
+	// over a network, so an export must not sit on the goroutine that recorded a
+	// child's exit. The queue drops when it fills, which is the right direction
+	// for a component that must not stall.
+	if cfg.OTLPEndpoint != "" {
+		exporter, err := otlploghttp.New(context.Background(),
+			otlploghttp.WithEndpointURL(otlpLogsURL(cfg.OTLPEndpoint)))
+		if err != nil {
+			otlpErr = err
+		} else {
+			processors = append(processors, logsdk.WithProcessor(
+				logsdk.NewBatchProcessor(exporter)))
+		}
+	}
+
 	options := append(processors, logsdk.WithResource(resource.NewSchemaless(
 		attribute.String("service.name", serviceName),
 		attribute.String("service.instance.id", NewID()),
@@ -347,6 +369,19 @@ func OpenTelemetry(cfg Config, console io.Writer) *Telemetry {
 
 	if openErr != nil {
 		t.Warn(componentTelemetry, "records are console-only", Err(openErr))
+	}
+	if otlpErr != nil {
+		// A warning rather than a refusal to boot. An operator who asked for a
+		// collector and did not get one needs to be told, and a Supervisor that
+		// would not start because its telemetry export could not be configured
+		// would be the machinery defeating the thing it is for.
+		t.Warn(componentTelemetry, "the configured collector could not be reached; "+
+			"records are local only", Err(otlpErr), String("endpoint", cfg.OTLPEndpoint))
+	} else if cfg.OTLPEndpoint != "" {
+		// Said at boot, because "is anything actually going to the collector"
+		// is the first question asked when nothing arrives at the other end.
+		t.Info(componentTelemetry, "also exporting to a collector",
+			String("endpoint", cfg.OTLPEndpoint))
 	}
 	return t
 }
@@ -428,6 +463,28 @@ func (t *Telemetry) Event(level Level, component, message string, fields ...Fiel
 	}
 	t.logger.Emit(context.Background(), record)
 }
+
+// otlpLogsURL resolves what an operator configured into the URL the exporter
+// wants.
+//
+// **A base URL, like `OTEL_EXPORTER_OTLP_ENDPOINT`**, because that is the one
+// people know: an operator writes `http://collector:4318` and the signal path is
+// appended. Passed straight through, the exporter would POST to `/` and a
+// collector would answer 404 — a misconfiguration that looks exactly like the
+// collector being wrong rather than the URL being incomplete. A URL that already
+// carries a path is left alone, so somebody fronting a collector at
+// `/otlp/v1/logs` is not overruled.
+func otlpLogsURL(endpoint string) string {
+	parsed, err := url.Parse(endpoint)
+	if err != nil || parsed.Path != "" && parsed.Path != "/" {
+		return endpoint
+	}
+	parsed.Path = otlpLogsPath
+	return parsed.String()
+}
+
+// otlpLogsPath is the OTLP/HTTP path for log records, fixed by the protocol.
+const otlpLogsPath = "/v1/logs"
 
 // consoleExporter renders records for a person at a terminal.
 //
