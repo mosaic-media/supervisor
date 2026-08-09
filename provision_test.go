@@ -30,7 +30,7 @@ func provisioner(t *testing.T, cfg Config, children ...ChildSpec) *Provisioner {
 			t.Fatalf("Add(%s): %v", spec.Name, err)
 		}
 	}
-	p, err := OpenProvisioner(cfg, manager, &Activity{}, t.Logf)
+	p, err := OpenProvisioner(cfg, manager, &Activity{}, OpenSpool(t.TempDir(), t.Logf), t.Logf)
 	if err != nil {
 		t.Fatalf("OpenProvisioner: %v", err)
 	}

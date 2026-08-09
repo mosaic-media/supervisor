@@ -93,15 +93,21 @@ func run() error {
 	// it and the front door that draws it.
 	activity := &supervisor.Activity{}
 
+	// Where the Supervisor writes what went wrong, for the Platform to adopt
+	// when it is up (ADR 0119). A file rather than a call, because the findings
+	// worth having most are the ones made while the Platform is not there.
+	spool := supervisor.OpenSpool(cfg.StateDir, log.Printf)
+
 	// Registration order is stop order — the Platform first, the interface
 	// last. Adding a third child means deciding where in that sequence it
 	// belongs.
 	manager := supervisor.NewManager(cfg.BootID, log.Printf)
+	manager.SetSpool(spool)
 
 	// The Generations this install holds, and the machinery to acquire one.
 	// Built before the children are registered because it is what decides what
 	// they run.
-	provisioner, err := supervisor.OpenProvisioner(cfg, manager, activity, log.Printf)
+	provisioner, err := supervisor.OpenProvisioner(cfg, manager, activity, spool, log.Printf)
 	if err != nil {
 		return err
 	}
@@ -117,6 +123,10 @@ func run() error {
 		Env: []string{
 			platformAddrEnv + "=" + cfg.Platform.ListenSpec(),
 			platformHandoffAddrEnv + "=" + cfg.PlatformHandoff.ListenSpec(),
+			// Where to adopt the Supervisor's findings from (ADR 0119). Told
+			// rather than configured at both ends, like the sockets above: two
+			// halves that have to agree must not be able to disagree.
+			supervisor.SpoolEnv + "=" + spool.Path(),
 		},
 		// The Platform's own handoff listener, which is the private channel
 		// between these two processes and is deliberately not routed through

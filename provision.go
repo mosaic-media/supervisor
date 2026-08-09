@@ -55,6 +55,10 @@ type Provisioner struct {
 	// decides whether an absent release catalogue is a problem or simply
 	// unused.
 	Manager *Manager
+	// Spool is where a provisioning failure is recorded (ADR 0119). Nothing
+	// else can report it: an install that cannot provision has no Platform to
+	// tell, which is exactly why the spool is a file.
+	Spool *Spool
 	// Development is true when the release catalogue is trusted through a
 	// development key rather than the shipped one, so the boot log can say so.
 	Development bool
@@ -73,12 +77,12 @@ var ErrNoReleaseSource = errors.New("supervisor: no generation on disk and no re
 // cannot. A nil Provisioner with a nil error is a deployment that manages its
 // own binaries — the DIY path, and the dev stack — which is supported rather
 // than degraded.
-func OpenProvisioner(cfg Config, manager *Manager, activity *Activity, logf func(string, ...any)) (*Provisioner, error) {
+func OpenProvisioner(cfg Config, manager *Manager, activity *Activity, spool *Spool, logf func(string, ...any)) (*Provisioner, error) {
 	generations, err := OpenGenerations(cfg.StateDir)
 	if err != nil {
 		return nil, err
 	}
-	p := &Provisioner{Generations: generations, Activity: activity, Manager: manager, Log: logf}
+	p := &Provisioner{Generations: generations, Activity: activity, Manager: manager, Spool: spool, Log: logf}
 
 	if cfg.ReleaseURL == "" {
 		// Nothing to fetch from. Still a Provisioner, because it can boot onto
@@ -110,6 +114,7 @@ func OpenProvisioner(cfg Config, manager *Manager, activity *Activity, logf func
 		Targets:     ProvisionTargets,
 		Log:         logf,
 		Activity:    activity,
+		Spool:       spool,
 	}
 	p.Updater = &Updater{IndexURL: cfg.ReleaseURL, Fetcher: fetcher, Activator: activator, Keys: keys, Log: logf}
 	return p, nil
@@ -180,6 +185,7 @@ func (p *Provisioner) EnsureGeneration(ctx context.Context) error {
 			// and here, which is not a failure.
 			return nil
 		}
+		p.Spool.Record(FindingProvisionFailed, ContextHost, "", errText(err))
 		return err
 	}
 	p.log("provisioned generation %s", version)

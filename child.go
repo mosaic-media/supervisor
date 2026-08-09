@@ -182,6 +182,9 @@ type Manager struct {
 	// keeps one child's line from interleaving with another's mid-way.
 	out   io.Writer
 	outMu sync.Mutex
+	// spool is where a finding is written for the Platform to adopt
+	// (ADR 0119). Nil is a Manager nobody is collecting findings from.
+	spool *Spool
 	// capture, when set, records everything the children write as well as
 	// passing it through — the evidence a failed activation would otherwise
 	// destroy by reverting. Guarded by outMu, which every write already holds.
@@ -355,6 +358,12 @@ func (m *Manager) superviseOne(ctx context.Context, name string) {
 			// the one line that matters becomes the one nobody reads.
 			m.log("child %s has failed %d times in a row and is not coming up (%v); "+
 				"still retrying every %s", name, m.failureCountOf(name), err, maxBackoff)
+			// And recorded, because a line said once is a line that scrolls
+			// away (ADR 0119). On the transition rather than on every failure,
+			// for the same reason the log is: the register folds repeats into
+			// a count, but a spool line per minute is a file that grows
+			// without bound on the one install that most needs it readable.
+			m.spool.Record(FindingChildUnrecoverable, ContextChild, name, errText(err))
 		case !m.unrecoverableOf(name):
 			m.log("child %s exited (%v); restarting in %s", name, err, backoff)
 		}
@@ -660,4 +669,23 @@ func (m *Manager) Snapshot() Health {
 		})
 	}
 	return Health{Children: out}
+}
+
+// SetSpool supplies where findings are recorded. Wired after construction
+// because the state directory is resolved with the Generations, which are
+// opened after the Manager exists.
+func (m *Manager) SetSpool(s *Spool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.spool = s
+}
+
+// errText is an error's message, or a stand-in when there is none. A child that
+// exited zero when it should not have has no error to quote, and an empty
+// detail on the screen reads as a finding that lost its reason.
+func errText(err error) string {
+	if err == nil {
+		return "the process exited without an error"
+	}
+	return err.Error()
 }

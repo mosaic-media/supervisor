@@ -79,6 +79,11 @@ type Activator struct {
 	// watching. This is the phase a person is most likely to *be* watching:
 	// their Mosaic went away and they want to know whether it is coming back.
 	Activity *Activity
+	// Spool is where a failed activation is recorded for the Platform to adopt
+	// (ADR 0119). **This is the case that document was written for**: an
+	// install that silently undoes its own upgrade and says so only in a log
+	// produces a bug report three days after the evidence rotated away.
+	Spool *Spool
 }
 
 // Activate restarts every target onto version and, only if all of them serve,
@@ -128,6 +133,7 @@ func (a *Activator) Activate(ctx context.Context, version string) (err error) {
 	defer a.Activity.Done()
 	if err := a.switchTo(ctx, dir, version); err != nil {
 		a.revert(ctx, version, previous, evidence())
+		a.Spool.Record(FindingGenerationRolledBack, ContextGeneration, version, errText(err))
 		return fmt.Errorf("%w: %v", ErrActivationFailed, err)
 	}
 
