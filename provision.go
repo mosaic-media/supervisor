@@ -198,14 +198,3 @@ func (p *Provisioner) log(format string, args ...any) {
 	}
 	p.Log("mosaic-supervisor: "+format, args...)
 }
-
-// CanProvision reports whether this install has any way to acquire a
-// Generation it does not already have.
-//
-// **It is what decides whether a child with no command is owned or somebody
-// else's.** An install that can provision owns its children and gives them
-// commands when a Generation arrives; one that cannot is fronting processes
-// something else runs, which is the DIY path and the dev stack.
-func (p *Provisioner) CanProvision() bool {
-	return p != nil && p.Updater != nil
-}

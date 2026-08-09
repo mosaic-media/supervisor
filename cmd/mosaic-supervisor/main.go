@@ -41,6 +41,18 @@ const (
 	// find none of the modules a user installed.
 	platformDirEnv = "MOSAIC_SUPERVISOR_PLATFORM_DIR"
 	shellDirEnv    = "MOSAIC_SUPERVISOR_SHELL_DIR"
+	// Set to say something else runs this child and the Supervisor only fronts
+	// and reports on it.
+	//
+	// **It is opt-out rather than inferred, and that was a defect.** Ownership
+	// used to be worked out from "no command and nowhere to fetch one", which
+	// reads as "not mine" — and in the supervised image, where there is no
+	// something-else in the container at all, it meant a Supervisor sat at
+	// "Starting" forever without ever saying it had nowhere to fetch from. The
+	// ambiguous case now defaults to the honest reading: this is mine, and I
+	// have nothing to run.
+	platformExternalEnv = "MOSAIC_SUPERVISOR_PLATFORM_EXTERNAL"
+	shellExternalEnv    = "MOSAIC_SUPERVISOR_SHELL_EXTERNAL"
 )
 
 // Where the children are told to bind. The Supervisor decides this rather than
@@ -115,7 +127,7 @@ func run() error {
 	if err := manager.Add(supervisor.ChildSpec{
 		Name:       supervisor.PlatformChildName,
 		Command:    childCommand(os.Getenv(platformCommandEnv), provisioner, supervisor.PlatformChildName),
-		Managed:    managed(os.Getenv(platformCommandEnv), provisioner),
+		Managed:    !external(platformExternalEnv),
 		WorkingDir: os.Getenv(platformDirEnv),
 		// Told where to listen, rather than configured independently: the two
 		// halves have to agree, and a Supervisor dialling a socket its child
@@ -157,7 +169,7 @@ func run() error {
 	if err := manager.Add(supervisor.ChildSpec{
 		Name:       supervisor.ShellChildName,
 		Command:    childCommand(os.Getenv(shellCommandEnv), provisioner, supervisor.ShellChildName),
-		Managed:    managed(os.Getenv(shellCommandEnv), provisioner),
+		Managed:    !external(shellExternalEnv),
 		WorkingDir: os.Getenv(shellDirEnv),
 		Env:        []string{shellAddrEnv + "=" + cfg.Shell.ListenSpec()},
 		// The Shell's health endpoint is on the same listener it serves from,
@@ -239,6 +251,13 @@ func run() error {
 	// exiting would replace an explanation with a closed port.
 	if err := provisioner.EnsureGeneration(ctx); err != nil {
 		log.Printf("mosaic-supervisor: %v", err)
+		// **And on the screen, because a log is not a surface an install in
+		// this state has.** Nothing is serving and nothing is going to, so the
+		// recovery page is the only thing anybody can reach — and left to the
+		// health inference it would say "Starting" forever, which is the one
+		// answer that is both true and useless. Reported and never cleared: the
+		// situation does not resolve on its own.
+		activity.Report(supervisor.PhaseDegraded, "", err.Error(), -1)
 	}
 
 	select {
@@ -299,15 +318,9 @@ func childCommand(fromEnv string, p *supervisor.Provisioner, child string) []str
 	return p.CommandFor(child)
 }
 
-// managed says whether the Supervisor owns a child's lifecycle.
-//
-// A command from the environment is somebody asking for that binary to be run,
-// so it is owned. With no command it turns on whether this install can ever
-// acquire one: a first boot can and is waiting for it, and a DIY deployment
-// cannot, because something else is running the process the Supervisor fronts.
-func managed(fromEnv string, p *supervisor.Provisioner) bool {
-	return len(fields(fromEnv)) > 0 || p.CanProvision()
-}
+// external reads the opt-out. Anything other than empty means the deployment
+// runs this child itself.
+func external(env string) bool { return strings.TrimSpace(os.Getenv(env)) != "" }
 
 // fields splits a command string on whitespace. This is deliberately not a
 // shell: a command needing quoting or a pipe belongs in a script the
