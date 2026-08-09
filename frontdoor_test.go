@@ -4,13 +4,16 @@
 package supervisor
 
 import (
+	"bufio"
 	"crypto/tls"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // tlsStateStub marks a request as having arrived over TLS. Its contents do not
@@ -160,20 +163,53 @@ func TestShellDownServesTheBootstrapPage(t *testing.T) {
 	}
 
 	// **It must still say what is happening with scripting off.** The page
-	// gained a script when the embedded renderer landed — it fetches the
-	// Supervisor's state and redraws it as that state changes — and this is the
-	// property that had to be earned back rather than relaxed: the whole
-	// content is a state, so the honest degradation is the current state in
-	// words, which simply stops updating.
-	noscript := between(string(body), "<noscript>", "</noscript>")
-	if !strings.Contains(noscript, "Mosaic") {
-		t.Errorf("the no-script fallback says nothing:\n%s", noscript)
+	// gained scripts when the recovery renderer landed, and this is the property
+	// that had to be earned back rather than relaxed.
+	//
+	// The state is server-rendered into the page body rather than into
+	// <noscript>, which is what makes it work: a browser with scripting off
+	// shows that content from the ordinary DOM, and the meta refresh inside
+	// <noscript> is what keeps it current. htmx then replaces the same element
+	// when scripting is on.
+	page := string(body)
+	if !strings.Contains(page, "Starting") {
+		t.Errorf("the page does not report the state on first paint:\n%s", page)
 	}
-	if !strings.Contains(noscript, "Starting") {
-		t.Errorf("the no-script fallback does not report the state:\n%s", noscript)
+	// The property, tested directly: remove every script element and the state
+	// must survive. Cutting at the first `<script` would test nothing useful —
+	// the vendored tags are in the head, above content that does not depend on
+	// them.
+	if withoutScripts := stripScripts(page); !strings.Contains(withoutScripts, "Starting") {
+		t.Errorf("the state is only reachable after a script runs — with scripting off "+
+			"the page would show one empty frame forever:\n%s", withoutScripts)
 	}
-	if strings.Contains(noscript, "<script") {
-		t.Error("the no-script fallback depends on scripting")
+	if !strings.Contains(between(page, "<noscript>", "</noscript>"), "http-equiv=\"refresh\"") {
+		t.Error("no refresh for a browser with scripting off — the whole content is a state that changes")
+	}
+}
+
+// stripScripts removes every script element, so what is left is what a browser
+// with scripting off would show.
+func stripScripts(page string) string {
+	var b strings.Builder
+	for rest := page; ; {
+		open := strings.Index(rest, "<script")
+		if open < 0 {
+			b.WriteString(rest)
+			return b.String()
+		}
+		b.WriteString(rest[:open])
+		after := rest[open:]
+		if end := strings.Index(after, "</script>"); end >= 0 {
+			rest = after[end+len("</script>"):]
+			continue
+		}
+		// A self-closing or unterminated tag: drop to the end of it.
+		if end := strings.Index(after, ">"); end >= 0 {
+			rest = after[end+1:]
+			continue
+		}
+		return b.String()
 	}
 }
 
@@ -294,5 +330,104 @@ func TestTheRecoveryUIReportsDegradedFromTheHealthReport(t *testing.T) {
 				t.Errorf("body does not say %q: %s", tc.want, rec.Body.String())
 			}
 		})
+	}
+}
+
+// The stream carries a signal rather than content, and says so once the Shell
+// is serving so the page can get out of the way.
+func TestTheEventStreamSignalsChangeAndReadiness(t *testing.T) {
+	state := &atomic.Value{}
+	state.Store([]ChildSnapshot{{Name: "platform", State: ChildStarting}})
+	front := frontDoor(t, "http://127.0.0.1:1", "http://127.0.0.1:1", func() Health {
+		return Health{Children: state.Load().([]ChildSnapshot)}
+	})
+
+	srv := httptest.NewServer(front)
+	defer srv.Close()
+
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+supervisorUIEventsPath, nil)
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatalf("subscribing: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if got := resp.Header.Get("Content-Type"); got != "text/event-stream" {
+		t.Fatalf("Content-Type = %q", got)
+	}
+	// Named so a buffering proxy in front of a homelab does not hold every
+	// event until the stream closes — a live page turned dead with no error.
+	if got := resp.Header.Get("X-Accel-Buffering"); got != "no" {
+		t.Errorf("X-Accel-Buffering = %q, want no", got)
+	}
+
+	events := bufio.NewReader(resp.Body)
+	read := func(what string) string {
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			line, err := events.ReadString('\n')
+			if err != nil {
+				t.Fatalf("reading %s: %v", what, err)
+			}
+			if strings.HasPrefix(line, "event: ") {
+				return strings.TrimSpace(strings.TrimPrefix(line, "event: "))
+			}
+		}
+		t.Fatalf("timed out waiting for %s", what)
+		return ""
+	}
+
+	// The first render is a change from nothing, so the stream opens by saying
+	// so — a client that connected mid-state must not wait for the next one.
+	if got := read("the initial state event"); got != "state" {
+		t.Fatalf("first event = %q, want state", got)
+	}
+
+	state.Store([]ChildSnapshot{{Name: "platform", State: ChildReady}})
+	// Ready ends the stream, having said so: the page reloads and the front
+	// door hands it the Shell.
+	for {
+		if got := read("the ready event"); got == "ready" {
+			break
+		}
+	}
+	// The stream ends after saying so. Drained to EOF rather than reading one
+	// line, because `event: ready` is followed by its own data line — reading
+	// one more would succeed on a stream that had closed correctly.
+	closed := make(chan error, 1)
+	go func() {
+		for {
+			if _, err := events.ReadString('\n'); err != nil {
+				closed <- err
+				return
+			}
+		}
+	}()
+	select {
+	case <-closed:
+	case <-time.After(3 * time.Second):
+		t.Error("the stream stayed open after ready — a connection held for a client that has gone")
+	}
+}
+
+// The vendored assets come out of the binary, so the page has nothing to fetch
+// from anywhere else.
+func TestTheVendoredAssetsAreServedFromTheBinary(t *testing.T) {
+	front := frontDoor(t, "http://127.0.0.1:1", "http://127.0.0.1:1", nil)
+	for _, name := range []string{"htmx.min.js", "sse.js"} {
+		rec := httptest.NewRecorder()
+		front.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, recoveryAssetPrefix+name, nil))
+		if rec.Code != http.StatusOK {
+			t.Errorf("%s: status %d", name, rec.Code)
+		}
+		if rec.Body.Len() == 0 {
+			t.Errorf("%s: empty", name)
+		}
+	}
+	// And nothing else is reachable through that prefix.
+	rec := httptest.NewRecorder()
+	front.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, recoveryAssetPrefix+"../frontdoor.go", nil))
+	if rec.Code == http.StatusOK {
+		t.Error("the asset path served something outside the vendored set")
 	}
 }

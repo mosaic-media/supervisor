@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httputil"
+	"strings"
 	"time"
 )
 
@@ -39,6 +40,12 @@ const (
 	// "what does the thing below Mosaic have to say" — and every client that
 	// renders this knows it is rendering a Supervisor state.
 	supervisorUIPath = "/supervisor/ui"
+	// The recovery UI's own two endpoints and its vendored assets. The fragment
+	// is the same tree as supervisorUIPath rendered to HTML; the event stream
+	// carries a signal that it changed, never the content.
+	supervisorUIFragmentPath = "/supervisor/ui/fragment"
+	supervisorUIEventsPath   = "/supervisor/ui/events"
+	recoveryAssetPrefix      = "/supervisor/static/"
 )
 
 // FrontDoor is the single public entry point (ADR 0005). It terminates TLS,
@@ -132,6 +139,12 @@ func (f *FrontDoor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.serveHealth(w, r)
 	case r.URL.Path == supervisorUIPath:
 		f.serveUI(w, r)
+	case r.URL.Path == supervisorUIFragmentPath:
+		f.serveUIFragment(w, r)
+	case r.URL.Path == supervisorUIEventsPath:
+		f.serveUIEvents(w, r)
+	case strings.HasPrefix(r.URL.Path, recoveryAssetPrefix):
+		f.serveRecoveryAsset(w, r)
 	case isPlatformPath(r.URL.Path):
 		f.platform.ServeHTTP(w, r)
 	default:
