@@ -56,9 +56,22 @@ type ChildSnapshot struct {
 	LastErr       string `json:"lastError,omitempty"`
 }
 
+// The two children this Supervisor knows by name.
+//
+// **Named because the front door branches on one of them.** Whether the
+// Supervisor answers the Platform's client surface itself turns on the Platform
+// child being ready (ADR 0123), and writing that check against a string literal
+// far from the registration that produced it would mean a rename switched the
+// takeover off with nothing failing anywhere — the exact shape of silent
+// breakage this repository keeps finding.
+const (
+	PlatformChildName = "platform"
+	ShellChildName    = "shell"
+)
+
 // ChildSpec describes a process the Supervisor owns.
 type ChildSpec struct {
-	// Name is the reporting name, e.g. "platform" or "shell".
+	// Name is the reporting name — PlatformChildName or ShellChildName.
 	Name string
 	// Command is argv. Empty means this child is externally managed and the
 	// Supervisor only fronts it — which is the shape the dev stack uses.

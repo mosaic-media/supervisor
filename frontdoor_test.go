@@ -5,6 +5,7 @@ package supervisor
 
 import (
 	"bufio"
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"io"
@@ -14,6 +15,12 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"connectrpc.com/connect"
+	authv1 "github.com/mosaic-media/contracts/gen/mosaic/auth/v1"
+	"github.com/mosaic-media/contracts/gen/mosaic/auth/v1/authv1connect"
+	sessionv1 "github.com/mosaic-media/contracts/gen/mosaic/session/v1"
+	"github.com/mosaic-media/contracts/gen/mosaic/session/v1/sessionv1connect"
 )
 
 // tlsStateStub marks a request as having arrived over TLS. Its contents do not
@@ -270,40 +277,136 @@ func TestHealthPathIsNotProxied(t *testing.T) {
 	}
 }
 
-// The Supervisor's own Recovery SDUI is served on a Supervisor-owned path
-// (ADR 0005), not as an answer on the Platform's routes — a client receiving
-// the Supervisor's screen where it asked for Mosaic's would have no way to tell
-// what it is drawing.
-func TestTheRecoveryUIIsServedOnItsOwnPath(t *testing.T) {
+// **The Supervisor answers the Platform's own routes while the Platform is
+// down** (ADR 0123), so a client has one SDUI source and no rule for choosing
+// between two.
+//
+// It is checked through a real Connect client against a real server rather than
+// by hand-shaping a request, because the thing being asserted is that a client
+// which knows nothing about the Supervisor gets an answer it can use.
+func TestTheSupervisorAnswersThePlatformsRoutesWhenItIsDown(t *testing.T) {
 	front := frontDoor(t, "http://127.0.0.1:1", "http://127.0.0.1:1", func() Health {
-		return Health{Children: []ChildSnapshot{{Name: "platform", State: ChildStarting}}}
+		return Health{Children: []ChildSnapshot{{Name: PlatformChildName, State: ChildStarting}}}
+	})
+	server := httptest.NewServer(front)
+	t.Cleanup(server.Close)
+
+	client := authv1connect.NewAuthServiceClient(server.Client(), server.URL)
+	res, err := client.Bootstrap(context.Background(), connect.NewRequest(&authv1.BootstrapRequest{}))
+	if err != nil {
+		t.Fatalf("Bootstrap: %v", err)
+	}
+	if res.Msg.UiNode.GetType() != "Box" {
+		t.Errorf("root node is %q, want the Box primitive", res.Msg.UiNode.GetType())
+	}
+	if !strings.Contains(treeText(res.Msg.UiNode), "boot-1") {
+		t.Error("the boot id is not on the screen")
+	}
+	// No skin and no definitions, and both absences are correct: the skin is
+	// Platform-delivered and the tree is primitives only. A client draws it
+	// with what it shipped with.
+	if len(res.Msg.Tokens) != 0 || len(res.Msg.Definitions) != 0 {
+		t.Error("the Supervisor answered with a skin or a definition library, neither of which it has")
+	}
+}
+
+// **And stops the moment the Platform is serving.** The switch is the front
+// door's alone; nothing on the client participates in it, which is the whole
+// reason this design replaced a client-side one.
+func TestTheSupervisorStandsAsideWhenThePlatformIsServing(t *testing.T) {
+	platform, shell := upstreams(t)
+	front := frontDoor(t, platform.URL, shell.URL, func() Health {
+		return Health{Children: []ChildSnapshot{{Name: PlatformChildName, State: ChildReady}}}
 	})
 	rec := httptest.NewRecorder()
-	front.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, supervisorUIPath, nil))
+	front.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/mosaic.auth.v1.AuthService/Bootstrap", nil))
+	if got := rec.Header().Get("X-Upstream"); got != "platform" {
+		t.Errorf("a serving Platform was answered by %q instead of being proxied", got)
+	}
+}
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status %d", rec.Code)
+// **The handover: the push lane ends when the Platform is back**, and the
+// client's ordinary reconnect does the rest. Nothing polls and nobody is told
+// to refresh.
+func TestThePushLaneEndsWhenThePlatformReturns(t *testing.T) {
+	children := &atomic.Value{}
+	children.Store([]ChildSnapshot{{Name: PlatformChildName, State: ChildStarting}})
+	front := frontDoor(t, "http://127.0.0.1:1", "http://127.0.0.1:1", func() Health {
+		return Health{Children: children.Load().([]ChildSnapshot)}
+	})
+	server := httptest.NewServer(front)
+	t.Cleanup(server.Close)
+
+	client := sessionv1connect.NewSessionServiceClient(server.Client(), server.URL)
+	stream, err := client.Subscribe(context.Background(), connect.NewRequest(&sessionv1.SubscribeRequest{}))
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
 	}
-	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
-		t.Errorf("Cache-Control = %q — a cached first-boot screen outlives the state it describes", got)
+	t.Cleanup(func() { _ = stream.Close() })
+
+	if !stream.Receive() {
+		t.Fatalf("no shell was pushed: %v", stream.Err())
 	}
-	var env struct {
-		Phase string         `json:"phase"`
-		UI    map[string]any `json:"ui"`
+	shellMsg, ok := stream.Msg().Body.(*sessionv1.ServerMessage_Shell)
+	if !ok {
+		t.Fatalf("first message is %T, want a shell update", stream.Msg().Body)
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
-		t.Fatalf("the recovery UI is not JSON: %v", err)
+	if !strings.Contains(treeText(shellMsg.Shell.UiNode), "Mosaic") {
+		t.Error("the pushed shell is not the Supervisor's screen")
 	}
-	// The phase travels as data beside the tree, so a renderer knows when to
-	// hand back to the Shell without string-matching the sentences.
-	if env.Phase != string(PhaseStarting) {
-		t.Errorf("phase = %q", env.Phase)
+	// The resume cursor is the Platform's to define. A number minted here would
+	// be presented to it as a position in a stream it never sent.
+	if stream.Msg().Seq != 0 {
+		t.Errorf("seq = %d — a cursor from this stream would be replayed against the Platform's",
+			stream.Msg().Seq)
 	}
-	if env.UI["type"] != "Box" {
-		t.Errorf("root node is %v, want the Box primitive", env.UI["type"])
+
+	children.Store([]ChildSnapshot{{Name: PlatformChildName, State: ChildReady}})
+	deadline := time.Now().Add(10 * time.Second)
+	for stream.Receive() {
+		if time.Now().After(deadline) {
+			t.Fatal("the stream did not end when the Platform came back")
+		}
 	}
-	if !strings.Contains(rec.Body.String(), "boot-1") {
-		t.Error("the boot id is not on the screen")
+	if err := stream.Err(); err != nil {
+		t.Errorf("the stream ended with an error rather than cleanly: %v", err)
+	}
+}
+
+// A credential is never answered by something that cannot check it, and the
+// refusal is Unavailable rather than Unauthenticated — a client answers the
+// latter by discarding its refresh chain (ADR 0102), which would sign somebody
+// out because their server restarted.
+func TestCredentialCallsAreRefusedAsUnavailable(t *testing.T) {
+	front := frontDoor(t, "http://127.0.0.1:1", "http://127.0.0.1:1", func() Health {
+		return Health{Children: []ChildSnapshot{{Name: PlatformChildName, State: ChildStarting}}}
+	})
+	server := httptest.NewServer(front)
+	t.Cleanup(server.Close)
+
+	client := authv1connect.NewAuthServiceClient(server.Client(), server.URL)
+	for name, call := range map[string]func() error{
+		"SignIn": func() error {
+			_, err := client.SignIn(context.Background(), connect.NewRequest(&authv1.SignInRequest{}))
+			return err
+		},
+		"Refresh": func() error {
+			_, err := client.Refresh(context.Background(), connect.NewRequest(&authv1.RefreshRequest{}))
+			return err
+		},
+		"SignOut": func() error {
+			_, err := client.SignOut(context.Background(), connect.NewRequest(&authv1.SignOutRequest{}))
+			return err
+		},
+	} {
+		err := call()
+		if err == nil {
+			t.Errorf("%s succeeded against a Supervisor that cannot check a credential", name)
+			continue
+		}
+		if got := connect.CodeOf(err); got != connect.CodeUnavailable {
+			t.Errorf("%s failed with %v, want unavailable — anything else risks a spurious sign-out", name, got)
+		}
 	}
 }
 
@@ -316,16 +419,16 @@ func TestTheRecoveryUIReportsDegradedFromTheHealthReport(t *testing.T) {
 		children []ChildSnapshot
 		want     string
 	}{
-		{"starting", []ChildSnapshot{{Name: "platform", State: ChildStarting}}, "Starting"},
-		{"degraded", []ChildSnapshot{{Name: "platform", State: ChildStarting, Unrecoverable: true}}, "not running"},
-		{"ready", []ChildSnapshot{{Name: "platform", State: ChildReady}}, "Mosaic is running"},
+		{"starting", []ChildSnapshot{{Name: PlatformChildName, State: ChildStarting}}, "Starting"},
+		{"degraded", []ChildSnapshot{{Name: PlatformChildName, State: ChildStarting, Unrecoverable: true}}, "not running"},
+		{"ready", []ChildSnapshot{{Name: PlatformChildName, State: ChildReady}}, "Mosaic is running"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			children := tc.children
 			front := frontDoor(t, "http://127.0.0.1:1", "http://127.0.0.1:1",
 				func() Health { return Health{Children: children} })
 			rec := httptest.NewRecorder()
-			front.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, supervisorUIPath, nil))
+			front.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, supervisorUIFragmentPath, nil))
 			if !strings.Contains(rec.Body.String(), tc.want) {
 				t.Errorf("body does not say %q: %s", tc.want, rec.Body.String())
 			}

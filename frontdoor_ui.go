@@ -5,64 +5,28 @@ package supervisor
 
 import (
 	"embed"
-	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
 )
 
-// Serving the Supervisor's own state (ADR 0005), in the two encodings its two
-// kinds of client need.
+// The embedded renderer's two endpoints (ADR 0005's third rung).
 //
-//	/supervisor/ui           JSON — the SDUI tree, for native clients and the Shell
-//	/supervisor/ui/fragment  HTML — the same tree rendered, for the recovery UI
-//	/supervisor/ui/events    SSE  — a ping when the fragment changes
+//	/supervisor/ui/fragment  HTML — the Supervisor's screen, rendered
+//	/supervisor/ui/events    SSE  — a ping when that rendering changes
 //
-// **One state, one tree, two encodings.** The recovery UI is hypermedia — the
-// Supervisor renders and htmx swaps — so it takes HTML; a native client has its
-// own renderer and takes the tree. Both come from RecoveryScreen, so they cannot
-// disagree about what the Supervisor is saying.
+// **These serve the recovery page and nothing else.** A client with its own
+// renderer does not come here at all: it calls the Platform's routes, and while
+// the Platform is not serving the Supervisor answers them itself (ADR 0123).
+// There was a `/supervisor/ui` here answering the tree as JSON for exactly that
+// audience, and removing it is the point rather than a tidy-up — an endpoint a
+// client has to know to ask is a rule every client has to implement.
 //
-// It is deliberately **not** an answer on the Platform's own routes. A client
-// asking the Platform for a screen and silently receiving the Supervisor's would
-// have no way to tell that what it is drawing is not Mosaic; asking here is
-// asking a different question, and every client that renders this knows which
-// question it asked.
+// Everything still comes from RecoveryScreen, so the page, a native client and
+// the Shell cannot disagree about what the Supervisor is saying.
 
 //go:embed recoveryui/vendor/htmx.min.js recoveryui/vendor/sse.js
 var recoveryAssets embed.FS
-
-// RecoveryEnvelope is what /supervisor/ui answers with: the tree to draw, and
-// the state as data beside it.
-//
-// **The phase is a field rather than something to read out of the prose.** A
-// renderer has to know when to stop drawing this and hand back to the Shell,
-// and the alternative is every client string-matching the sentences — which
-// would make the wording load-bearing and untranslatable.
-type RecoveryEnvelope struct {
-	Phase   Phase           `json:"phase"`
-	Version string          `json:"version,omitempty"`
-	BootID  string          `json:"bootId,omitempty"`
-	UI      json.RawMessage `json:"ui"`
-}
-
-// serveUI answers with the SDUI tree and the phase beside it.
-func (f *FrontDoor) serveUI(w http.ResponseWriter, r *http.Request) {
-	state := f.recoveryState()
-	tree, err := RecoveryScreenJSON(state)
-	if err != nil {
-		http.Error(w, "recovery ui encoding failed", http.StatusInternalServerError)
-		return
-	}
-	body, err := json.Marshal(RecoveryEnvelope{
-		Phase: state.Phase, Version: state.Version, BootID: state.BootID, UI: tree,
-	})
-	if err != nil {
-		http.Error(w, "recovery ui encoding failed", http.StatusInternalServerError)
-		return
-	}
-	writeNoStore(w, r, "application/json; charset=utf-8", body)
-}
 
 // serveUIFragment answers with the rendered HTML htmx swaps in.
 func (f *FrontDoor) serveUIFragment(w http.ResponseWriter, r *http.Request) {

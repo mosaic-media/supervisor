@@ -94,17 +94,6 @@ type RecoveryState struct {
 // change of screen would make that a navigation.
 func RecoveryScreen(s RecoveryState) sdui.Node { return recoveryScreen(s).Build() }
 
-// RecoveryScreenJSON is the same tree in the canonical protojson encoding a
-// client decodes.
-//
-// **It goes through the contract's own BuildJSON rather than protojson here**,
-// which is not a nicety: ADR 0121 widened this module's import boundary by
-// exactly one module, and marshalling directly would have made it two. The
-// contract anticipated the case — BuildJSON exists so an emitter can produce
-// the wire bytes without importing protobuf — and the boundary test is what
-// found the first attempt doing otherwise.
-func RecoveryScreenJSON(s RecoveryState) ([]byte, error) { return recoveryScreen(s).BuildJSON() }
-
 func recoveryScreen(s RecoveryState) *ui.Element {
 	body := []ui.El{
 		// **A CSS length, not a size token.** `Icon.size` is `string|number` in

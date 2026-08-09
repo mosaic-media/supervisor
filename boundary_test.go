@@ -70,8 +70,9 @@ func TestSupervisorImportsNothingButTheStandardLibrary(t *testing.T) {
 			if allowedNonStandard(importPath) {
 				continue
 			}
-			t.Errorf("%s: imports %q — the Supervisor may depend only on the standard library "+
-				"and %s, so it can run when the Platform cannot (ADR 0121)", rel, importPath, contractsModule)
+			t.Errorf("%s: imports %q — the Supervisor may depend only on the standard library, "+
+				"%s and %s, so it can run when the Platform cannot (ADR 0121, ADR 0123)",
+				rel, importPath, contractsModule, connectModule)
 		}
 		return nil
 	})
@@ -83,17 +84,39 @@ func TestSupervisorImportsNothingButTheStandardLibrary(t *testing.T) {
 	}
 }
 
-// contractsModule is the one non-standard dependency this module may have.
-const contractsModule = "github.com/mosaic-media/contracts"
-
-// allowedNonStandard reports whether an import is the permitted exception.
+// The two non-standard dependencies this module may have.
 //
-// Matched on the module path and its subpackages, and on nothing else — in
+// **The second one adds no code to the binary that the first had not already
+// brought in.** `contracts` requires `connectrpc.com/connect` itself — it
+// generates the Connect handlers for both client-facing services — so this
+// widening moves a module from transitive to direct rather than admitting
+// anything new to the linked graph. That distinction is why ADR 0123 was
+// affordable: the rule counts direct imports because those are what a reader
+// can audit, but the property it protects is about what has to work when
+// everything else is broken, and that set is unchanged.
+//
+// It is needed because ADR 0123 has the Supervisor *answer* the Platform's own
+// client surface while the Platform is down, so a client has one SDUI source
+// rather than two. Implementing the generated handler interfaces means naming
+// `connect.Request` and `connect.ServerStream`.
+const (
+	contractsModule = "github.com/mosaic-media/contracts"
+	connectModule   = "connectrpc.com/connect"
+)
+
+// allowedNonStandard reports whether an import is one of the permitted two.
+//
+// Matched on the module paths and their subpackages, and on nothing else — in
 // particular **not** on a prefix like `github.com/mosaic-media/`, which would
 // silently admit the Platform, the SDK and every module repository. The
-// widening is one module wide and the test is what keeps it that way.
+// widening is two modules wide and the test is what keeps it that way.
 func allowedNonStandard(importPath string) bool {
-	return importPath == contractsModule || strings.HasPrefix(importPath, contractsModule+"/")
+	for _, m := range []string{contractsModule, connectModule} {
+		if importPath == m || strings.HasPrefix(importPath, m+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // TestThePlatformStaysForbidden is the half of the boundary the widening could
@@ -112,18 +135,28 @@ func TestThePlatformStaysForbidden(t *testing.T) {
 		"github.com/mosaic-media/sdk/contracts/platform/v1",
 		"github.com/mosaic-media/module-tmdb",
 		"github.com/mosaic-media/contractsfoo",
+		// Neither of the two is a licence for its neighbours. `connectrpc.com`
+		// hosts more than one module, and grpc arrives in this build graph
+		// through the contract already — admitting either by prefix would turn
+		// a stated two into "whatever resolves".
+		"connectrpc.com/grpcreflect",
+		"connectrpc.com/connectfoo",
+		"google.golang.org/grpc",
+		"google.golang.org/protobuf/encoding/protojson",
 	} {
 		if allowedNonStandard(forbidden) {
-			t.Errorf("%q is allowed — the widening is one module wide (ADR 0121)", forbidden)
+			t.Errorf("%q is allowed — the widening is exactly two modules wide (ADR 0121, ADR 0123)", forbidden)
 		}
 	}
 	for _, allowed := range []string{
 		"github.com/mosaic-media/contracts",
 		"github.com/mosaic-media/contracts/ui",
 		"github.com/mosaic-media/contracts/sdui",
+		"github.com/mosaic-media/contracts/gen/mosaic/session/v1/sessionv1connect",
+		"connectrpc.com/connect",
 	} {
 		if !allowedNonStandard(allowed) {
-			t.Errorf("%q is refused — the SDUI contract is the permitted exception", allowed)
+			t.Errorf("%q is refused — the contract and Connect are the two permitted exceptions", allowed)
 		}
 	}
 }

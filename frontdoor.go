@@ -11,6 +11,9 @@ import (
 	"net/http/httputil"
 	"strings"
 	"time"
+
+	"github.com/mosaic-media/contracts/gen/mosaic/auth/v1/authv1connect"
+	"github.com/mosaic-media/contracts/gen/mosaic/session/v1/sessionv1connect"
 )
 
 // Route prefixes that belong to the Platform. Everything not named here goes
@@ -31,18 +34,21 @@ const (
 	// reserved prefix so it cannot collide with a Shell route, and it is the
 	// one path the front door answers itself.
 	supervisorHealthPath = "/supervisor/healthz"
-	// supervisorUIPath serves the Supervisor's own Recovery SDUI (ADR 0005).
+	// The embedded renderer's own two endpoints and its vendored assets.
 	//
-	// A Supervisor-owned path rather than an answer on the Platform's routes,
-	// and the difference matters: a client asking the Platform for a screen and
-	// silently getting the Supervisor's would have no way to tell that what it
-	// is drawing is not Mosaic. Asking here is asking a different question —
-	// "what does the thing below Mosaic have to say" — and every client that
-	// renders this knows it is rendering a Supervisor state.
-	supervisorUIPath = "/supervisor/ui"
-	// The recovery UI's own two endpoints and its vendored assets. The fragment
-	// is the same tree as supervisorUIPath rendered to HTML; the event stream
-	// carries a signal that it changed, never the content.
+	// **These are the recovery page's, and nobody else's** (ADR 0123). There
+	// was a `/supervisor/ui` beside them serving the same tree as JSON, on the
+	// reasoning that a client should have to ask a different question to get a
+	// Supervisor answer — so that it could never draw one believing it was
+	// Mosaic. That reasoning was wrong in the way that matters: it made every
+	// client responsible for knowing about two sources and for choosing between
+	// them, which is a rule that has to be reimplemented, correctly, in every
+	// client anyone ever writes. The Supervisor now answers the Platform's own
+	// routes and says who is speaking in the payload, which costs one event
+	// type and no client code at all.
+	//
+	// The fragment is that same tree rendered to HTML; the event stream carries
+	// a signal that it changed, never the content.
 	supervisorUIFragmentPath = "/supervisor/ui/fragment"
 	supervisorUIEventsPath   = "/supervisor/ui/events"
 	recoveryAssetPrefix      = "/supervisor/static/"
@@ -65,6 +71,10 @@ type FrontDoor struct {
 	// function so the process manager can own the state without the front
 	// door depending on it.
 	health func() Health
+	// absent answers the Platform's own client surface while the Platform is
+	// not serving (ADR 0123). It is the whole of "the Supervisor takes over":
+	// one address, and the front door choosing who answers it.
+	absent http.Handler
 }
 
 // Health is what the Supervisor knows about itself and its children.
@@ -90,7 +100,45 @@ func NewFrontDoor(cfg Config, health func() Health) (*FrontDoor, error) {
 		return nil, fmt.Errorf("shell upstream: %w", err)
 	}
 	fd.platform, fd.shell = platform, shell
+
+	// The Supervisor's stand-in for the Platform's client surface. Mounted on
+	// the generated service paths, so the two services are reached at exactly
+	// the addresses the Platform serves them at and a client cannot tell it is
+	// being answered from somewhere else — which is the point (ADR 0123).
+	mux := http.NewServeMux()
+	authPath, authHandler := authv1connect.NewAuthServiceHandler(&authAbsent{state: fd.recoveryState})
+	mux.Handle(authPath, authHandler)
+	sessionPath, sessionHandler := sessionv1connect.NewSessionServiceHandler(&sessionAbsent{state: fd.recoveryState})
+	mux.Handle(sessionPath, sessionHandler)
+	fd.absent = mux
+
 	return fd, nil
+}
+
+// platformServing reports whether the Platform is up enough to be proxied to.
+//
+// **Read from the health report rather than discovered by dialling.** The
+// alternative — proxy and fall back when the dial fails — cannot work for the
+// push lane: by the time a stream's dial has failed the request body is gone and
+// there is nothing left to hand to a second handler. The cost is a lag of one
+// health probe when the Platform dies, during which a client is told
+// `unavailable` by the proxy's error handler and retries; that is the behaviour
+// it had before this existed, so the lag degrades to the old path rather than to
+// a new failure.
+func (f *FrontDoor) platformServing() bool {
+	if f.health == nil {
+		// Nothing is supervising children, so there is no Platform whose
+		// absence this could stand in for. Proxy and let the dial decide.
+		return true
+	}
+	for _, c := range f.health().Children {
+		if c.Name == PlatformChildName {
+			return c.State == ChildReady
+		}
+	}
+	// A Platform that is not in the report is not one this Supervisor started.
+	// Same reasoning as above: proxy, and let the dial answer.
+	return true
 }
 
 // proxyTo builds a reverse proxy with the settings that matter here.
@@ -137,8 +185,6 @@ func (f *FrontDoor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.URL.Path == supervisorHealthPath:
 		f.serveHealth(w, r)
-	case r.URL.Path == supervisorUIPath:
-		f.serveUI(w, r)
 	case r.URL.Path == supervisorUIFragmentPath:
 		f.serveUIFragment(w, r)
 	case r.URL.Path == supervisorUIEventsPath:
@@ -146,10 +192,30 @@ func (f *FrontDoor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(r.URL.Path, recoveryAssetPrefix):
 		f.serveRecoveryAsset(w, r)
 	case isPlatformPath(r.URL.Path):
+		// **The switch, and the whole of what a client has to know about it:
+		// nothing.** A client calls the one address it always calls. While the
+		// Platform is serving this proxies; while it is not, the Supervisor
+		// answers the same two services with its own state (ADR 0123), and
+		// stops the moment the Platform is back.
+		//
+		// Only the client surface. Artwork and playback are bytes the
+		// Supervisor does not have and must not pretend to — they keep the
+		// proxy and its `unavailable`, which is the honest answer for a byte stream
+		// that cannot be served.
+		if isClientSurfacePath(r.URL.Path) && !f.platformServing() {
+			f.absent.ServeHTTP(w, r)
+			return
+		}
 		f.platform.ServeHTTP(w, r)
 	default:
 		f.shell.ServeHTTP(w, r)
 	}
+}
+
+// isClientSurfacePath is the part of the Platform's routing the Supervisor can
+// stand in for: the two Connect services a client draws itself from.
+func isClientSurfacePath(p string) bool {
+	return strings.HasPrefix(p, connectPrefix)
 }
 
 // isPlatformPath is the complete enumeration of what goes to the Platform.

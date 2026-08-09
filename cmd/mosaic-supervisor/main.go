@@ -94,7 +94,7 @@ func run() error {
 	// belongs.
 	manager := supervisor.NewManager(cfg.BootID, log.Printf)
 	if err := manager.Add(supervisor.ChildSpec{
-		Name:       "platform",
+		Name:       supervisor.PlatformChildName,
 		Command:    fields(os.Getenv(platformCommandEnv)),
 		WorkingDir: os.Getenv(platformDirEnv),
 		// Told where to listen, rather than configured independently: the two
@@ -131,7 +131,7 @@ func run() error {
 		return err
 	}
 	if err := manager.Add(supervisor.ChildSpec{
-		Name:       "shell",
+		Name:       supervisor.ShellChildName,
 		Command:    fields(os.Getenv(shellCommandEnv)),
 		WorkingDir: os.Getenv(shellDirEnv),
 		Env:        []string{shellAddrEnv + "=" + cfg.Shell.ListenSpec()},
