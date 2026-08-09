@@ -89,13 +89,27 @@ func run() error {
 			"so it can be reached without passing through this process", cfg.Platform.Address())
 	}
 
+	// What the Supervisor is doing to itself, shared by the components that do
+	// it and the front door that draws it.
+	activity := &supervisor.Activity{}
+
 	// Registration order is stop order — the Platform first, the interface
 	// last. Adding a third child means deciding where in that sequence it
 	// belongs.
 	manager := supervisor.NewManager(cfg.BootID, log.Printf)
+
+	// The Generations this install holds, and the machinery to acquire one.
+	// Built before the children are registered because it is what decides what
+	// they run.
+	provisioner, err := supervisor.OpenProvisioner(cfg, manager, activity, log.Printf)
+	if err != nil {
+		return err
+	}
+
 	if err := manager.Add(supervisor.ChildSpec{
 		Name:       supervisor.PlatformChildName,
-		Command:    fields(os.Getenv(platformCommandEnv)),
+		Command:    childCommand(os.Getenv(platformCommandEnv), provisioner, supervisor.PlatformChildName),
+		Managed:    managed(os.Getenv(platformCommandEnv), provisioner),
 		WorkingDir: os.Getenv(platformDirEnv),
 		// Told where to listen, rather than configured independently: the two
 		// halves have to agree, and a Supervisor dialling a socket its child
@@ -132,7 +146,8 @@ func run() error {
 	}
 	if err := manager.Add(supervisor.ChildSpec{
 		Name:       supervisor.ShellChildName,
-		Command:    fields(os.Getenv(shellCommandEnv)),
+		Command:    childCommand(os.Getenv(shellCommandEnv), provisioner, supervisor.ShellChildName),
+		Managed:    managed(os.Getenv(shellCommandEnv), provisioner),
 		WorkingDir: os.Getenv(shellDirEnv),
 		Env:        []string{shellAddrEnv + "=" + cfg.Shell.ListenSpec()},
 		// The Shell's health endpoint is on the same listener it serves from,
@@ -162,6 +177,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	frontDoor.Activity = activity
 
 	certificate, generated, err := supervisor.TLSCertificate(cfg)
 	if err != nil {
@@ -201,6 +217,20 @@ func run() error {
 		errs <- nil
 	}()
 
+	// **Provisioning happens after the door is open, and that ordering is the
+	// whole reason the recovery page exists.** A first boot fetches two
+	// binaries over whatever connection the box has; somebody who opens the URL
+	// during those minutes must see the install happening rather than a refused
+	// connection. Doing this before serving would make the one screen written
+	// for this moment unreachable in it.
+	//
+	// Its failure is logged and not returned. A Supervisor that cannot
+	// provision must keep running, because the front door is what says why —
+	// exiting would replace an explanation with a closed port.
+	if err := provisioner.EnsureGeneration(ctx); err != nil {
+		log.Printf("mosaic-supervisor: %v", err)
+	}
+
 	select {
 	case err := <-errs:
 		return err
@@ -239,6 +269,35 @@ func run() error {
 // are already gone. Everything still connected at that point is being served
 // the holding page, so this is short.
 const frontDoorDrain = 10 * time.Second
+
+// childCommand decides what a child runs.
+//
+// **The environment wins over the Generation**, which is the right way round
+// for the two cases that set it: a development stack pointing at binaries it
+// built, and a deployment managing its own processes (ADR 0121's DIY path).
+// Both are deliberate acts by somebody who knows what they want run, and
+// neither should be quietly overridden by a Generation that happens to be on
+// disk.
+//
+// Empty from both is a child the Supervisor fronts but does not own, which is
+// also how a first boot starts: there is nothing to run until a Generation
+// arrives, and the Activator sets the command when one does.
+func childCommand(fromEnv string, p *supervisor.Provisioner, child string) []string {
+	if argv := fields(fromEnv); len(argv) > 0 {
+		return argv
+	}
+	return p.CommandFor(child)
+}
+
+// managed says whether the Supervisor owns a child's lifecycle.
+//
+// A command from the environment is somebody asking for that binary to be run,
+// so it is owned. With no command it turns on whether this install can ever
+// acquire one: a first boot can and is waiting for it, and a DIY deployment
+// cannot, because something else is running the process the Supervisor fronts.
+func managed(fromEnv string, p *supervisor.Provisioner) bool {
+	return len(fields(fromEnv)) > 0 || p.CanProvision()
+}
 
 // fields splits a command string on whitespace. This is deliberately not a
 // shell: a command needing quoting or a pipe belongs in a script the

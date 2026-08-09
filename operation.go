@@ -99,11 +99,12 @@ func (m *Manager) Restart(ctx context.Context, name string) error {
 		m.mu.Unlock()
 		return fmt.Errorf("no child named %q", name)
 	}
-	if len(c.spec.Command) == 0 {
+	if len(c.spec.Command) == 0 && !c.spec.Managed {
 		m.mu.Unlock()
 		// An externally managed child is somebody else's to restart, and
 		// pretending otherwise would report success for something that never
-		// happened.
+		// happened. A *managed* child with no command is the other case: it is
+		// waiting for its first one, and this is the signal that it has one.
 		return fmt.Errorf("child %q is externally managed; the Supervisor does not own its lifecycle", name)
 	}
 	before := c.starts

@@ -135,13 +135,27 @@
     document.body.classList.add("unreachable");
   }
 
-  // Ready means the Shell is serving. **This reload is the one the whole design
-  // is arranged to avoid**, and it survives only because it is unreachable in
-  // any state that has a Shell: once the Shell is running it renders the
-  // Supervisor's SDUI itself, so the handover is the next tree arriving rather
-  // than a navigation. This page is what a first boot sees *before* the Shell
-  // has been downloaded, and there is nothing to hand over to without a load.
-  addEventListener("sse:ready", function () { location.reload(); });
+  // Ready means the Shell is serving, and this page reloads into it.
+  //
+  // **The reload is the one the whole design is arranged to avoid**, and it
+  // survives only because it is unreachable in any state that has a Shell: once
+  // the Shell is running it renders the Supervisor's SDUI itself, so the
+  // handover is the next tree arriving rather than a navigation. This page is
+  // what a first boot sees *before* the Shell has been downloaded, and there is
+  // nothing to hand over to without a load.
+  //
+  // **Read from the swapped-in fragment, not from an event.** The first version
+  // listened for "sse:ready" on the window, which never fires: htmx's SSE
+  // extension exposes a named event as a *trigger* — hx-trigger="sse:ready" —
+  // and not as a DOM event anybody can subscribe to. It shipped, the test
+  // asserted the string was in the page, and a first boot sat on "Mosaic is
+  // running" forever. The phase now rides the fragment as data, so every rung
+  // that delivers content also delivers this, and the prose stays prose.
+  addEventListener("htmx:afterSwap", handOver);
+  function handOver() {
+    var el = document.querySelector("[data-phase]");
+    if (el && el.getAttribute("data-phase") === "ready") location.reload();
+  }
 </script>
 </body>
 </html>

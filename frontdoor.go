@@ -75,6 +75,11 @@ type FrontDoor struct {
 	// not serving (ADR 0123). It is the whole of "the Supervisor takes over":
 	// one address, and the front door choosing who answers it.
 	absent http.Handler
+	// Activity is what the Supervisor is doing to itself, if anything —
+	// fetching a Generation, switching onto one. Nil means nothing reports, and
+	// the phase is inferred from the children alone, which is what this did
+	// before anything fed it.
+	Activity *Activity
 }
 
 // Health is what the Supervisor knows about itself and its children.

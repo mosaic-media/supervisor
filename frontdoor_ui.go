@@ -5,6 +5,7 @@ package supervisor
 
 import (
 	"embed"
+	"html"
 	"net/http"
 	"strings"
 	"time"
@@ -28,9 +29,19 @@ import (
 //go:embed recoveryui/vendor/htmx.min.js recoveryui/vendor/sse.js
 var recoveryAssets embed.FS
 
-// serveUIFragment answers with the rendered HTML htmx swaps in.
+// serveUIFragment answers with the rendered HTML htmx swaps in, wrapped in an
+// element carrying the phase as data.
+//
+// **The phase has to travel with the fragment**, because the page has to know
+// when to get out of the way and the only alternative is reading the prose —
+// which would make the wording load-bearing and untranslatable. It rides a data
+// attribute rather than a header so it survives the swap and can be read from
+// the DOM afterwards, on whichever rung delivered it.
 func (f *FrontDoor) serveUIFragment(w http.ResponseWriter, r *http.Request) {
-	writeNoStore(w, r, "text/html; charset=utf-8", []byte(RecoveryFragment(f.recoveryState())))
+	state := f.recoveryState()
+	body := `<div data-phase="` + html.EscapeString(string(state.Phase)) + `">` +
+		RecoveryFragment(state) + `</div>`
+	writeNoStore(w, r, "text/html; charset=utf-8", []byte(body))
 }
 
 // serveUIEvents pushes a `state` event whenever the rendered fragment changes,
@@ -149,18 +160,32 @@ func (f *FrontDoor) recoveryHTML() string {
 
 // recoveryState turns what the front door knows into what the emitter draws.
 //
-// **The front door infers the phase rather than being told it**, because the
-// thing that knows is the health report it already has: an install whose
-// children are not serving is starting, one whose child has passed its ceiling
-// is degraded. Provisioning and upgrading are the two it cannot infer — the
-// Fetcher and the Activator know and the front door does not — so it reports
-// what it can see rather than guessing, and wiring those two in is what turns
-// the progress bar from implemented into fed.
+// **Two sources, and the deliberate one wins.** An operation the Supervisor is
+// performing on itself — fetching a Generation, switching onto one — is
+// reported by whichever component is doing it, because only that component
+// knows. Everything else is inferred from the health report the front door
+// already holds: children that are not serving are starting, a child past its
+// restart ceiling is degraded.
+//
+// The order matters. During an upgrade the children *are* down, so the
+// inference would call it degraded — technically true and the wrong thing to
+// tell somebody, because "not coming up" and "coming back in a moment" are the
+// two states this screen exists to separate. What is being done on purpose is
+// therefore preferred over what can be observed.
 func (f *FrontDoor) recoveryState() RecoveryState {
 	state := RecoveryState{
 		Phase:    PhaseStarting,
 		Progress: -1,
 		BootID:   f.cfg.BootID,
+	}
+	if doing, ok := f.Activity.Current(); ok {
+		doing.BootID = state.BootID
+		if f.health != nil {
+			// The children still travel with it: an upgrade is the moment
+			// somebody most wants to know which half is back.
+			doing.Children = f.health().Children
+		}
+		return doing
 	}
 	if f.health == nil {
 		return state

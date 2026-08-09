@@ -95,6 +95,20 @@ type Fetcher struct {
 	// Log is where progress goes. It is the same function shape the Manager
 	// takes, so a Supervisor wires one logger into both.
 	Log func(string, ...any)
+	// Activity is where a download reports itself for the screen somebody is
+	// watching, if anything is watching. Nil is a fetch nobody is looking at —
+	// a test, or a path with no front door — and reporting into nothing is the
+	// correct behaviour there rather than a missing wire.
+	Activity *Activity
+	// Phase is what this fetch *is*, which the Fetcher cannot work out and its
+	// caller can: bringing down the first Generation an install has ever had is
+	// provisioning, and replacing one is upgrading. They read differently to
+	// somebody watching — one is "setting up", the other is "this was working a
+	// minute ago" — so the distinction is worth a field. Empty takes
+	// PhaseProvisioning, which is the safer default: describing an upgrade as a
+	// first install is odd, and describing a first install as an upgrade is
+	// alarming.
+	Phase Phase
 }
 
 // Fetch downloads every artefact of a release, verifies each against the signed
@@ -140,14 +154,22 @@ func (f *Fetcher) Fetch(ctx context.Context, rel Release) (keyID string, err err
 		return "", err
 	}
 
-	for _, a := range rel.Artefacts {
+	// Reported for the whole fetch rather than per artefact, and cleared however
+	// it ends: a failed download left showing "downloading" is the stuck
+	// progress bar every installer has and nobody believes.
+	defer f.Activity.Done()
+
+	for i, a := range rel.Artefacts {
 		as := a.As
 		if as == "" {
 			as = a.Name
 		}
 		dest := filepath.Join(dir, as)
 		f.log("fetching %s from %s", a.Name, rel.Version)
-		if err := f.download(ctx, rel.BaseURL, a.Name, dest, a.Executable); err != nil {
+		f.report(rel.Version, a.Name, i, len(rel.Artefacts), 0, 0)
+		if err := f.download(ctx, rel.BaseURL, a.Name, dest, a.Executable, func(done, size int64) {
+			f.report(rel.Version, a.Name, i, len(rel.Artefacts), done, size)
+		}); err != nil {
 			return "", err
 		}
 		id, err := VerifyArtefact(dest, a.Name, checksums, signature, f.Keys)
@@ -170,8 +192,8 @@ func (f *Fetcher) Fetch(ctx context.Context, rel Release) (keyID string, err err
 // and this runs in the process that must not be the one that runs out of
 // memory. The cap is enforced on the way through rather than from
 // Content-Length, which is a claim by the server.
-func (f *Fetcher) download(ctx context.Context, base, name, dest string, executable bool) error {
-	body, err := f.open(ctx, base, name)
+func (f *Fetcher) download(ctx context.Context, base, name, dest string, executable bool, onProgress func(done, size int64)) error {
+	body, size, err := f.open(ctx, base, name)
 	if err != nil {
 		return err
 	}
@@ -187,7 +209,13 @@ func (f *Fetcher) download(ctx context.Context, base, name, dest string, executa
 	}
 	defer out.Close()
 
-	written, err := io.Copy(out, io.LimitReader(body, maxArtefactBytes+1))
+	// Counted through a reporting reader rather than after the fact, because
+	// the number worth having is the one during the minutes this takes.
+	src := io.Reader(io.LimitReader(body, maxArtefactBytes+1))
+	if onProgress != nil {
+		src = &progressReader{r: src, size: size, report: onProgress}
+	}
+	written, err := io.Copy(out, src)
 	if err != nil {
 		return fmt.Errorf("supervisor: downloading %s: %w", name, err)
 	}
@@ -200,7 +228,7 @@ func (f *Fetcher) download(ctx context.Context, base, name, dest string, executa
 // get reads a small file whole — the checksums and the signature, which are
 // bounded by their own nature and by the cap passed in.
 func (f *Fetcher) get(ctx context.Context, base, name string, limit int64) ([]byte, error) {
-	body, err := f.open(ctx, base, name)
+	body, _, err := f.open(ctx, base, name)
 	if err != nil {
 		return nil, err
 	}
@@ -218,18 +246,23 @@ func (f *Fetcher) get(ctx context.Context, base, name string, limit int64) ([]by
 
 // open issues the request and returns the body, refusing anything that is not a
 // 200 over HTTPS.
-func (f *Fetcher) open(ctx context.Context, base, name string) (io.ReadCloser, error) {
+// The reported size is the server's Content-Length, or zero when it does not
+// give one. **It is a claim, and it is only ever used to draw a bar** — the
+// size limit is enforced on the way through, on the bytes themselves, precisely
+// because this header cannot be trusted. The worst a lie does here is draw the
+// fraction badly for one artefact.
+func (f *Fetcher) open(ctx context.Context, base, name string) (io.ReadCloser, int64, error) {
 	target, err := releaseURL(base, name)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
-		return nil, fmt.Errorf("supervisor: requesting %s: %w", name, err)
+		return nil, 0, fmt.Errorf("supervisor: requesting %s: %w", name, err)
 	}
 	resp, err := f.client().Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("supervisor: fetching %s: %w", name, err)
+		return nil, 0, fmt.Errorf("supervisor: fetching %s: %w", name, err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
@@ -237,9 +270,49 @@ func (f *Fetcher) open(ctx context.Context, base, name string) (io.ReadCloser, e
 		// things: a 404 is a release that does not publish this artefact — a
 		// catalogue naming a version that was never built — and a 5xx is the
 		// host, which is worth retrying and the other is not.
-		return nil, fmt.Errorf("supervisor: fetching %s: %s", name, resp.Status)
+		return nil, 0, fmt.Errorf("supervisor: fetching %s: %s", name, resp.Status)
 	}
-	return resp.Body, nil
+	size := resp.ContentLength
+	if size < 0 {
+		size = 0
+	}
+	return resp.Body, size, nil
+}
+
+// report tells the Activity where this fetch has got to.
+func (f *Fetcher) report(version, name string, index, total int, done, size int64) {
+	phase := f.Phase
+	if phase == "" {
+		phase = PhaseProvisioning
+	}
+	f.Activity.Report(phase, version, fetchDetail(name, index, total),
+		fetchProgress(index, total, done, size))
+}
+
+// progressReader counts bytes on their way past.
+//
+// **It reports on a threshold rather than on every read**, because a copy makes
+// thousands of them and each report takes a lock the front door also takes to
+// render. A quarter of a megabyte is far finer than anything a person can see
+// move and coarse enough to cost nothing.
+type progressReader struct {
+	r      io.Reader
+	size   int64
+	done   int64
+	marked int64
+	report func(done, size int64)
+}
+
+const progressStep = 256 << 10
+
+func (p *progressReader) Read(b []byte) (int, error) {
+	n, err := p.r.Read(b)
+	p.done += int64(n)
+	if p.done-p.marked >= progressStep {
+		p.marked = p.done
+		p.report(p.done, p.size)
+	}
+	return n, err
 }
 
 func (f *Fetcher) client() *http.Client {

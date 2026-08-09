@@ -4,6 +4,8 @@
 package supervisor
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"regexp"
 	"sort"
 	"strings"
@@ -152,12 +154,32 @@ func TestTheEmbeddedRendererStaysSmall(t *testing.T) {
 // It hands back to the Shell rather than drawing a finished state, and it reads
 // the phase as data rather than string-matching the sentences — which would
 // make the wording load-bearing.
+//
+// **Both halves of the coupling, because only one of them used to be checked.**
+// The first version listened for `sse:ready` on the window and asserted that
+// string was in the page. It was, and the event does not exist: htmx's SSE
+// extension exposes a named event as an `hx-trigger`, not as a DOM event. The
+// test passed and a first boot sat on "Mosaic is running" forever, because the
+// one thing neither half checked was whether the *server* emitted anything the
+// page could read.
 func TestTheEmbeddedRendererHandsBackWhenReady(t *testing.T) {
-	if !strings.Contains(recoveryPage, `"sse:ready"`) {
-		t.Error("the page does not act on the ready event")
-	}
 	if !strings.Contains(recoveryPage, "location.reload()") {
 		t.Error("the page never gets out of the way once the Shell is serving")
+	}
+	if !strings.Contains(recoveryPage, "data-phase") {
+		t.Error("the page does not read the phase from the fragment, so it is reading " +
+			"the prose or acting on an event that may not exist")
+	}
+
+	// And the server puts it there. This is the half that was missing.
+	front := frontDoor(t, "http://127.0.0.1:1", "http://127.0.0.1:1", func() Health {
+		return Health{Children: []ChildSnapshot{{Name: PlatformChildName, State: ChildReady}}}
+	})
+	rec := httptest.NewRecorder()
+	front.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, supervisorUIFragmentPath, nil))
+	if !strings.Contains(rec.Body.String(), `data-phase="`+string(PhaseReady)+`"`) {
+		t.Errorf("the fragment carries no readable phase, so the page cannot know to stand aside: %s",
+			rec.Body.String())
 	}
 }
 

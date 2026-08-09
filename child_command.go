@@ -26,6 +26,12 @@ func (m *Manager) CommandOf(name string) ([]string, error) {
 		return nil, fmt.Errorf("supervisor: no child named %q", name)
 	}
 	if len(c.spec.Command) == 0 {
+		if c.spec.Managed {
+			// Owned, and running nothing yet. Nothing to report and nothing to
+			// revert to, which is a first boot rather than a failure — the
+			// revert path already skips a target with no previous command.
+			return nil, nil
+		}
 		return nil, fmt.Errorf("supervisor: child %q is externally managed; the Supervisor does not own its lifecycle", name)
 	}
 	return append([]string(nil), c.spec.Command...), nil
@@ -51,7 +57,7 @@ func (m *Manager) SetCommand(name string, argv []string) error {
 	if !ok {
 		return fmt.Errorf("supervisor: no child named %q", name)
 	}
-	if len(c.spec.Command) == 0 {
+	if len(c.spec.Command) == 0 && !c.spec.Managed {
 		return fmt.Errorf("supervisor: child %q is externally managed; the Supervisor does not own its lifecycle", name)
 	}
 	c.spec.Command = append([]string(nil), argv...)
@@ -128,4 +134,26 @@ func (m *Manager) snapshotOf(name string) ChildSnapshot {
 		Unrecoverable: c.unrecoverable,
 		LastErr:       c.lastErr,
 	}
+}
+
+// AwaitingCommand names the children the Supervisor owns and has nothing to run
+// for — a first boot before its Generation has arrived.
+//
+// **It is the difference between "nothing to provision" and "nothing can be
+// provisioned".** Without it the boot path reported a missing release catalogue
+// on every ordinary start of the dev stack, where both children were supplied
+// by the deployment and were running perfectly: an alarming line about a real
+// misconfiguration, printed at a moment when nothing was wrong, which is how a
+// log stops being read.
+func (m *Manager) AwaitingCommand() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var waiting []string
+	for _, name := range m.order {
+		c := m.children[name]
+		if c.spec.Managed && len(c.spec.Command) == 0 {
+			waiting = append(waiting, name)
+		}
+	}
+	return waiting
 }

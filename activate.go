@@ -75,6 +75,10 @@ type Activator struct {
 	// Now is the clock, injectable so the evidence file's name is testable.
 	Now func() time.Time
 	Log func(string, ...any)
+	// Activity is where the switch reports itself for the screen somebody is
+	// watching. This is the phase a person is most likely to *be* watching:
+	// their Mosaic went away and they want to know whether it is coming back.
+	Activity *Activity
 }
 
 // Activate restarts every target onto version and, only if all of them serve,
@@ -118,7 +122,11 @@ func (a *Activator) Activate(ctx context.Context, version string) (err error) {
 	evidence := a.Manager.Capture()
 
 	a.log("activating generation %s", version)
-	if err := a.switchTo(ctx, dir); err != nil {
+	// Cleared however this ends. On the failure branch below, the honest screen
+	// is what the reverted children are actually doing — which the front door
+	// infers on its own — rather than an "upgrading" that has stopped.
+	defer a.Activity.Done()
+	if err := a.switchTo(ctx, dir, version); err != nil {
 		a.revert(ctx, version, previous, evidence())
 		return fmt.Errorf("%w: %v", ErrActivationFailed, err)
 	}
@@ -136,8 +144,17 @@ func (a *Activator) Activate(ctx context.Context, version string) (err error) {
 // switchTo points every target at dir and waits for each to serve, in the
 // Manager's registration order — the Platform before the Shell, the same order
 // they start and stop in, so an activation does not invent a third.
-func (a *Activator) switchTo(ctx context.Context, dir string) error {
-	for _, t := range a.ordered() {
+func (a *Activator) switchTo(ctx context.Context, dir, version string) error {
+	targets := a.ordered()
+	for i, t := range targets {
+		// Counted in children rather than timed. How long a child takes to come
+		// up is not knowable in advance — the Platform may be running
+		// migrations — so a bar that guessed at seconds would be wrong in the
+		// one direction that matters, and a person watching an upgrade wants to
+		// know it is *progressing* rather than how many seconds are left.
+		a.Activity.Report(PhaseUpgrading, version,
+			fmt.Sprintf("restarting %s (%d of %d)", t.Child, i+1, len(targets)),
+			float64(i)/float64(len(targets)))
 		argv := append([]string{filepath.Join(dir, t.Binary)}, t.Args...)
 		if err := a.Manager.SetCommand(t.Child, argv); err != nil {
 			return err
@@ -149,6 +166,9 @@ func (a *Activator) switchTo(ctx context.Context, dir string) error {
 			return fmt.Errorf("%s did not come up: %w", t.Child, err)
 		}
 		a.log("child %s is serving the new generation", t.Child)
+		a.Activity.Report(PhaseUpgrading, version,
+			fmt.Sprintf("restarting %s (%d of %d)", t.Child, i+1, len(targets)),
+			float64(i+1)/float64(len(targets)))
 	}
 	return nil
 }
@@ -208,7 +228,12 @@ func (a *Activator) Rollback(ctx context.Context) (version string, err error) {
 	if version, err = a.Generations.Rollback(); err != nil {
 		return "", err
 	}
-	if err := a.switchTo(ctx, a.Generations.Dir(previous)); err != nil {
+	// Reported as an upgrade, because that is what it is from outside — children
+	// restarting onto a different Generation — and the version named is the one
+	// being moved to. A phase of its own would be a word for a difference
+	// nobody watching can see.
+	defer a.Activity.Done()
+	if err := a.switchTo(ctx, a.Generations.Dir(previous), previous); err != nil {
 		return version, fmt.Errorf("%w: rolled back to %s and it did not come up: %v",
 			ErrActivationFailed, previous, err)
 	}

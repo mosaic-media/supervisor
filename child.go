@@ -73,9 +73,23 @@ const (
 type ChildSpec struct {
 	// Name is the reporting name — PlatformChildName or ShellChildName.
 	Name string
-	// Command is argv. Empty means this child is externally managed and the
-	// Supervisor only fronts it — which is the shape the dev stack uses.
+	// Command is argv. Empty means there is nothing to run *yet*, which is two
+	// opposite situations — see Managed.
 	Command []string
+	// Managed says the Supervisor owns this process's lifecycle.
+	//
+	// **It exists because an empty Command means two opposite things**, and
+	// inferring from emptiness alone made one of them impossible. A dev stack
+	// or a DIY deployment supplies no command because something else runs the
+	// process; a first boot supplies none because the binary has not been
+	// downloaded yet. Both are `Command == nil`, and only the second may be
+	// given one later.
+	//
+	// Inferring it cost a first boot that fetched and verified a Generation
+	// perfectly and then refused to start it, reporting that "the Supervisor
+	// does not own its lifecycle" — about the child it had just been told to
+	// provision. Nothing failed; the install simply sat at "starting" forever.
+	Managed bool
 	// Env is added to the Supervisor's own environment.
 	Env []string
 	// Readiness is the child's own assessment of itself, and must answer
@@ -294,12 +308,24 @@ func (m *Manager) superviseOne(ctx context.Context, name string) {
 	for ctx.Err() == nil {
 		spec := m.specOf(name)
 
-		// A child with no command is externally managed: the Supervisor
-		// fronts it and reports on it, but does not own its lifecycle. That
-		// is the dev stack's shape, where compose owns the processes.
 		if len(spec.Command) == 0 {
-			m.pollReadiness(ctx, name)
-			return
+			// Nothing to run and nobody is going to give us anything: the
+			// child is somebody else's, and the Supervisor fronts it and
+			// reports on it without owning it. The dev stack's shape.
+			if !spec.Managed {
+				m.pollReadiness(ctx, name)
+				return
+			}
+			// Owned, with no binary yet — a first boot before its Generation
+			// has been fetched. Wait rather than return: the Activator sets a
+			// command and signals a restart, and returning here is what left a
+			// provisioned install with two children nothing would ever start.
+			select {
+			case <-ctx.Done():
+				return
+			case <-m.restartOf(name):
+			}
+			continue
 		}
 
 		started := time.Now()
@@ -516,6 +542,14 @@ func (p *Probe) ask(ctx context.Context) (status int, answered bool) {
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, resp.Body)
 	return resp.StatusCode, true
+}
+
+// restartOf is the channel a restart request arrives on. Read under the lock
+// because the child map is, though the channel itself never changes.
+func (m *Manager) restartOf(name string) chan struct{} {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.children[name].restart
 }
 
 func (m *Manager) specOf(name string) ChildSpec {

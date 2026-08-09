@@ -33,6 +33,9 @@ const (
 	platformHandoffEnv = "MOSAIC_SUPERVISOR_PLATFORM_HANDOFF_URL"
 	shellURLEnv        = "MOSAIC_SUPERVISOR_SHELL_URL"
 	bootIDEnv          = "MOSAIC_BOOT_ID"
+	// Where Generations are kept, and where a release is fetched from.
+	stateDirEnv   = "MOSAIC_SUPERVISOR_STATE_DIR"
+	releaseURLEnv = "MOSAIC_SUPERVISOR_RELEASE_URL"
 )
 
 const (
@@ -41,6 +44,10 @@ const (
 	// home for an artefact that should not survive a reboot, and a socket left
 	// behind by a killed process is exactly that.
 	defaultRuntimeDir = "/run/mosaic"
+	// defaultStateDir holds the Generations and the pointer at the live one.
+	// /var/lib rather than /run, and the difference is the whole point: this
+	// must survive a reboot or every restart would be a first boot.
+	defaultStateDir = "/var/lib/mosaic"
 )
 
 // Socket file names within the runtime directory.
@@ -80,6 +87,21 @@ type Config struct {
 	// Platform and the Shell it adopts an inbound one only when something is
 	// supervising the Supervisor.
 	BootID string
+	// StateDir holds the Generations and the pointer at the live one. It
+	// survives a reboot; the runtime directory deliberately does not.
+	StateDir string
+	// ReleaseURL is the directory holding the signed release catalogue —
+	// index.json and index.json.sig.
+	//
+	// **There is no default, and that is a gap rather than a policy.** The
+	// module registry's URL is compiled into the Platform because there is one
+	// and it is published; the equivalent for Platform *releases* does not
+	// exist yet — a Generation needs binaries from two repositories, and
+	// nothing aggregates and signs them the way the registry does for modules.
+	// Inventing a URL here would be a plausible-looking constant pointing at
+	// nothing. Empty means an install boots on whatever it already has and says
+	// so, which is the honest behaviour until there is somewhere to point.
+	ReleaseURL string
 }
 
 // LoadConfig reads configuration from the environment, validating rather than
@@ -92,12 +114,17 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		KeyFile:    strings.TrimSpace(getenv(keyFileEnv)),
 		RuntimeDir: strings.TrimSpace(getenv(runtimeDirEnv)),
 		BootID:     strings.TrimSpace(getenv(bootIDEnv)),
+		StateDir:   strings.TrimSpace(getenv(stateDirEnv)),
+		ReleaseURL: strings.TrimSpace(getenv(releaseURLEnv)),
 	}
 	if cfg.ListenAddr == "" {
 		cfg.ListenAddr = defaultListenAddr
 	}
 	if cfg.RuntimeDir == "" {
 		cfg.RuntimeDir = defaultRuntimeDir
+	}
+	if cfg.StateDir == "" {
+		cfg.StateDir = defaultStateDir
 	}
 	if cfg.BootID == "" {
 		cfg.BootID = NewID()
