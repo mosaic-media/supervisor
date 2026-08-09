@@ -169,6 +169,17 @@ func TestTheRecoveryPageHasAFloorBeneathTheStream(t *testing.T) {
 	if !strings.Contains(recoveryPage, "every 5s") {
 		t.Error("no polling trigger — a blocked SSE stream would freeze the page")
 	}
+	// **The stream drives and the poll is the floor**, rather than both running:
+	// polling while SSE works is a wasted request and a visible one, since an
+	// innerHTML swap restarts the spinner's animation.
+	if !strings.Contains(recoveryPage, `trigger("sse:state")`) {
+		t.Error("the poll is never dropped when the stream proves itself, so it runs on the happy path")
+	}
+	// Silence restores it, whatever the cause. A stream held by a buffering
+	// proxy never errors and never delivers, so an error event is not enough.
+	if !strings.Contains(recoveryPage, "lastMessage") {
+		t.Error("nothing restores the poll when the stream goes quiet without erroring")
+	}
 	if !strings.Contains(recoveryPage, `<noscript><meta http-equiv="refresh"`) {
 		t.Error("no meta refresh — with scripting off the page would show one frame forever")
 	}

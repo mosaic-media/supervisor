@@ -89,13 +89,40 @@
     -->
     <div id="state"
          hx-get="/supervisor/ui/fragment"
-         hx-trigger="every 5s, sse:state"
+         hx-trigger="sse:state, every 5s"
          hx-swap="innerHTML"
          aria-live="polite">{{fragment}}</div>
     <p id="unreachable">Cannot reach this Mosaic. It may be restarting — this page keeps trying.</p>
   </div>
 <script>
   // The three things htmx does not express declaratively, and nothing else.
+
+  // **The stream drives; the poll is the floor.** Polling every few seconds
+  // while SSE is working is a wasted request and a visible one — an innerHTML
+  // swap recreates the spinner and restarts its animation — so the interval is
+  // dropped as soon as the stream proves itself by delivering, and restored the
+  // moment it stops.
+  //
+  // Proving-by-delivery rather than by an "opened" event, and a watchdog rather
+  // than an "error" event: a stream that connects and is then held by a
+  // buffering proxy never errors and never delivers, which is the failure this
+  // has to survive. Silence restores the poll whatever the cause.
+  var state = document.getElementById("state");
+  var lastMessage = 0;
+
+  function trigger(spec) {
+    if (state.getAttribute("hx-trigger") === spec) return;
+    state.setAttribute("hx-trigger", spec);
+    window.htmx && htmx.process(state);
+  }
+  addEventListener("htmx:sseMessage", function () {
+    lastMessage = Date.now();
+    trigger("sse:state");
+  });
+  setInterval(function () {
+    if (lastMessage && Date.now() - lastMessage > 20000) trigger("sse:state, every 5s");
+  }, 5000);
+
   addEventListener("htmx:responseError", unreachable);
   addEventListener("htmx:sendError", unreachable);
   addEventListener("htmx:afterOnLoad", function () {
@@ -107,9 +134,13 @@
     // identical and mean opposite things.
     document.body.classList.add("unreachable");
   }
-  // Ready means the Shell is serving, so a reload gets the real interface from
-  // the front door. This page's job ends by getting out of the way rather than
-  // by drawing a finished state.
+
+  // Ready means the Shell is serving. **This reload is the one the whole design
+  // is arranged to avoid**, and it survives only because it is unreachable in
+  // any state that has a Shell: once the Shell is running it renders the
+  // Supervisor's SDUI itself, so the handover is the next tree arriving rather
+  // than a navigation. This page is what a first boot sees *before* the Shell
+  // has been downloaded, and there is nothing to hand over to without a load.
   addEventListener("sse:ready", function () { location.reload(); });
 </script>
 </body>
