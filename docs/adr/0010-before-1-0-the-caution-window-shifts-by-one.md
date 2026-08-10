@@ -1,16 +1,16 @@
 # Before 1.0, the upgrade caution window shifts by one
 
-**Status:** Superseded by [supervisor#11](../../../../../workspace/supervisor/docs/adr/0011-the-monitored-version-is-the-contract-not-the-artefact.md). The window shift was applied to the artefact's own version and withheld from the contract's; both were the wrong way round. Never built.
+**Status:** Superseded by [supervisor#11](0011-the-monitored-version-is-the-contract-not-the-artefact.md). The window shift was applied to the artefact's own version and withheld from the contract's; both were the wrong way round. Never built.
 **Date:** 2026-08-09
 
-Fills the gap [supervisor#9](../../../../../workspace/supervisor/docs/adr/0009-major-upgrades-are-never-automatic.md) named and
+Fills the gap [supervisor#9](0009-major-upgrades-are-never-automatic.md) named and
 deliberately left to the implementation. Does **not** change
-[supervisor#8](../../../../../workspace/supervisor/docs/adr/0008-artefacts-are-paired-by-contract-major.md) — see the decision's
+[supervisor#8](0008-artefacts-are-paired-by-contract-major.md) — see the decision's
 second half.
 
 ## Context
 
-[supervisor#9](../../../../../workspace/supervisor/docs/adr/0009-major-upgrades-are-never-automatic.md) makes automation depend on the size of a version change: minor and
+[supervisor#9](0009-major-upgrades-are-never-automatic.md) makes automation depend on the size of a version change: minor and
 patch may be automatic, a major never is. It then names the problem that rule
 has today and does not solve it.
 
@@ -38,7 +38,7 @@ minor is read as the major, and the patch as the minor.**
 - **It governs caution, and nothing else.** The question it answers is "how
   careful should an install be about taking this", which is a product judgement
   about surprise. It is not a claim about what works with what.
-- **The compatibility rule is untouched, and must stay untouched.** [supervisor#8](../../../../../workspace/supervisor/docs/adr/0008-artefacts-are-paired-by-contract-major.md)
+- **The compatibility rule is untouched, and must stay untouched.** [supervisor#8](0008-artefacts-are-paired-by-contract-major.md)
   pairs the Platform and the Shell on the *contract* major, and that major is
   the leading component with no shift — `0` for everything today. Applying this
   window there would make `contracts` `v0.59` and `v0.60` incompatible, which is

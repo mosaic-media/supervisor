@@ -13,7 +13,7 @@ import (
 // Recovery SDUI: what the Supervisor has to say about itself, as a tree every
 // client can draw.
 //
-// [supervisor#2](https://github.com/mosaic-media/architecture/blob/main/docs/adr/0005-supervisor-guarantees-an-interface.md)
+// [supervisor#2](https://github.com/mosaic-media/supervisor/blob/main/docs/adr/0002-supervisor-guarantees-an-interface.md)
 // decided the shape and it is one emitter with many renderers. The Shell draws
 // this when it is running, a native client draws it in its own skin, and the
 // embedded renderer draws it for a browser when there is no Shell yet — which

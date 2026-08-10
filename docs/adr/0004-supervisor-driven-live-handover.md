@@ -20,7 +20,7 @@ the Platform inherits nothing.
 
 That is enough for a single Generation restarting in place. It is **not** the
 full story Mosaic's operational model wants. The Supervisor
-([supervisor#1](../../../../../workspace/supervisor/docs/adr/0001-supervisor-as-host-manager.md)–[platform#4](https://github.com/mosaic-media/platform/blob/main/docs/adr/0004-static-go-module-composition.md))
+([supervisor#1](0001-supervisor-as-host-manager.md)–[platform#4](https://github.com/mosaic-media/platform/blob/main/docs/adr/0004-static-go-module-composition.md))
 activates a new **Generation** — a freshly built binary — and the intended
 experience is a *seamless* upgrade: clients move from Generation N to N+1
 without a visible standby blip, and without cutting a user off mid-playback.
@@ -46,7 +46,7 @@ path. Migration is cooperative and activity-aware.**
   available," "migrate to N+1 at endpoint X when it is safe for you,"
   "Generation N is draining." It is **also the recovery-UI fallback authority**:
   when no Generation can serve (a failed activation, a recovery flow —
-  [supervisor#2](../../../../../workspace/supervisor/docs/adr/0002-supervisor-guarantees-an-interface.md)), the control channel
+  [supervisor#2](0002-supervisor-guarantees-an-interface.md)), the control channel
   is what the client still has, so the Supervisor can present a recovery surface
   through it. The control channel outlives any single Generation.
 
@@ -126,7 +126,7 @@ once) is impossible with one channel.
   has. The resume payload is unchanged — `{session, route}` — so the render side
   needs nothing new.
 - **The recovery UI has a home**: the control channel is the authority that
-  survives when no Generation can serve, which [supervisor#2](../../../../../workspace/supervisor/docs/adr/0002-supervisor-guarantees-an-interface.md)
+  survives when no Generation can serve, which [supervisor#2](0002-supervisor-guarantees-an-interface.md)
   needs a transport for.
 
 Honest limits: this is **design recorded ahead of build**. The message
@@ -142,7 +142,7 @@ onto the slice-3 reconnect floor.
 Not built in the live-client thread's slice 3. Slice 3 delivered the floor:
 client reconnect (backoff + jitter), route re-declaration on reconnect, and the
 Platform's going-away close on graceful shutdown. Building *this* ADR waits on
-the Supervisor ([supervisor#1](../../../../../workspace/supervisor/docs/adr/0001-supervisor-as-host-manager.md)–[platform#4](https://github.com/mosaic-media/platform/blob/main/docs/adr/0004-static-go-module-composition.md)),
+the Supervisor ([supervisor#1](0001-supervisor-as-host-manager.md)–[platform#4](https://github.com/mosaic-media/platform/blob/main/docs/adr/0004-static-go-module-composition.md)),
 and will add: the control-channel transport and protocol on both Supervisor and
 client, the drain state on a Generation's live surface, and the client's
 two-session migration state machine. Sequenced with the Supervisor's Generation

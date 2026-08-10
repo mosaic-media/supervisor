@@ -1,10 +1,10 @@
 # The Platform and the Shell are resolved independently and paired by contract major
 
-**Status:** Proposed and partly superseded: the pairing shape stands, and the component it reads was corrected by [supervisor#11](../../../../../workspace/supervisor/docs/adr/0011-the-monitored-version-is-the-contract-not-the-artefact.md) — pre-1.0 it is the contract minor, not the major. Nothing here is built; the Supervisor reads a signed index from a configured URL today, and no official one exists.
+**Status:** Proposed and partly superseded: the pairing shape stands, and the component it reads was corrected by [supervisor#11](0011-the-monitored-version-is-the-contract-not-the-artefact.md) — pre-1.0 it is the contract minor, not the major. Nothing here is built; the Supervisor reads a signed index from a configured URL today, and no official one exists.
 **Date:** 2026-08-09
 
 Settles where the release catalogue
-[supervisor#6](../../../../../workspace/supervisor/docs/adr/0006-two-supervised-images-and-a-diy-path.md)'s images need actually
+[supervisor#6](0006-two-supervised-images-and-a-diy-path.md)'s images need actually
 lives. Applies the compatibility rule
 [platform#39](https://github.com/mosaic-media/platform/blob/main/docs/adr/0039-extension-module-boundary.md) already uses for modules to the
 other two artefacts. Uses the artefact verification of
@@ -64,7 +64,7 @@ paired on the contract major they declare.**
   [platform#74](https://github.com/mosaic-media/platform/blob/main/docs/adr/0074-operational-findings-are-durable-state.md) finding rather than
   a silence: an install that stopped taking upgrades must say why it stopped.
 - **Crossing a contract major is a major upgrade** under
-  [supervisor#9](../../../../../workspace/supervisor/docs/adr/0009-major-upgrades-are-never-automatic.md), whatever the version
+  [supervisor#9](0009-major-upgrades-are-never-automatic.md), whatever the version
   numbers on either side say. It is the one upgrade where both halves change
   what they say to each other, so it is the one that most needs a person.
 - **The verification path is unchanged.** Each artefact is checked against its

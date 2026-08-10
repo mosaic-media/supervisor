@@ -4,15 +4,15 @@
 Shell needed no code for it.
 **Date:** 2026-08-09
 
-Completes [supervisor#2](../../../../../workspace/supervisor/docs/adr/0002-supervisor-guarantees-an-interface.md)'s "one emitter,
+Completes [supervisor#2](0002-supervisor-guarantees-an-interface.md)'s "one emitter,
 many renderers" by removing the second *source* a client would otherwise have
 had. Partly supersedes
-[supervisor#6](../../../../../workspace/supervisor/docs/adr/0006-two-supervised-images-and-a-diy-path.md): the Supervisor's import
+[supervisor#6](0006-two-supervised-images-and-a-diy-path.md): the Supervisor's import
 boundary widens from one module to two.
 
 ## Context
 
-[supervisor#2](../../../../../workspace/supervisor/docs/adr/0002-supervisor-guarantees-an-interface.md) has the Supervisor emit its own SDUI so that a person is told what is
+[supervisor#2](0002-supervisor-guarantees-an-interface.md) has the Supervisor emit its own SDUI so that a person is told what is
 happening when the Platform cannot tell them. The emitter was built, and so were
 two renderers: the embedded htmx page, and the Shell.
 

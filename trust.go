@@ -15,7 +15,7 @@ import (
 // about to execute are Mosaic's.
 //
 // **This is a different key from the one the Platform holds**
-// ([platform#76](https://github.com/mosaic-media/architecture/blob/main/docs/adr/0122-the-signing-key-hierarchy.md)).
+// ([platform#76](https://github.com/mosaic-media/platform/blob/main/docs/adr/0076-the-signing-key-hierarchy.md)).
 // The Platform embeds `mosaic-official` and verifies the extension-module index
 // with it — a key CI exercises on every module release, whose compromise serves
 // a malicious module into a separate process with controlled egress. This one

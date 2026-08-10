@@ -118,7 +118,7 @@ type Config struct {
 	// the file — never instead of it (sdk#8).
 	//
 	// **Empty by default, and that is the decision rather than an omission.**
-	// [supervisor#5](https://github.com/mosaic-media/architecture/blob/main/docs/adr/0060-the-supervisor-observes-independently.md)
+	// [supervisor#5](https://github.com/mosaic-media/supervisor/blob/main/docs/adr/0005-the-supervisor-observes-independently.md)
 	// refused an exporter that needs a running collector, because the Supervisor
 	// may assume nothing else is up — and that reasoning stands. What sdk#8
 	// changed is that OTLP became an *option an operator takes*, so an install

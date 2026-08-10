@@ -1,12 +1,12 @@
 # Two supervised images, a DIY path, and the Supervisor's own contract dependency
 
-**Status:** Built in part, and partly superseded: the import boundary was widened again by [supervisor#7](../../../../../workspace/supervisor/docs/adr/0007-the-supervisor-answers-the-platforms-client-surface.md); the rest stands. The contract dependency, the emitter it was for and both images are built; onboarding's module step is not.
+**Status:** Built in part, and partly superseded: the import boundary was widened again by [supervisor#7](0007-the-supervisor-answers-the-platforms-client-surface.md); the rest stands. The contract dependency, the emitter it was for and both images are built; onboarding's module step is not.
 **Date:** 2026-08-09
 
 Amends [platform#50](https://github.com/mosaic-media/platform/blob/main/docs/adr/0050-deployment-topologies.md)'s topology table (the supervised
 container splits in two, and the unsupervised arrangement is named as a path
 rather than left implied). Settles a question
-[supervisor#2](../../../../../workspace/supervisor/docs/adr/0002-supervisor-guarantees-an-interface.md) opened and did not answer:
+[supervisor#2](0002-supervisor-guarantees-an-interface.md) opened and did not answer:
 how a Supervisor that imports the standard library alone emits a contract that
 lives in a generated protobuf module. Depends on
 [platform#38](https://github.com/mosaic-media/platform/blob/main/docs/adr/0038-platform-binary-built-by-ci.md) for the artefacts and
@@ -19,7 +19,7 @@ Three questions about how a person actually gets Mosaic running have been
 answered in conversation and never written down, and each one has produced work
 built against a guess.
 
-**What is in the image.** [supervisor#1](../../../../../workspace/supervisor/docs/adr/0001-supervisor-as-host-manager.md) opens
+**What is in the image.** [supervisor#1](0001-supervisor-as-host-manager.md) opens
 with "add Mosaic to a Docker Compose file and start", and
 [platform#50](https://github.com/mosaic-media/platform/blob/main/docs/adr/0050-deployment-topologies.md) names a Container topology — but
 neither says whether the database is inside it. PostgreSQL is deliberately
@@ -37,14 +37,14 @@ has never been decided, and the difference matters to anyone who has already
 built one: if it is a stopgap, the Platform's image and its standalone
 `docker-compose.yml` are debt; if it is a supported path, they are the product.
 
-**How the Supervisor emits SDUI.** [supervisor#2](../../../../../workspace/supervisor/docs/adr/0002-supervisor-guarantees-an-interface.md) decides that the Supervisor emits
+**How the Supervisor emits SDUI.** [supervisor#2](0002-supervisor-guarantees-an-interface.md) decides that the Supervisor emits
 Recovery SDUI, that the Shell renders it when present, that native clients render
 it with their own renderers, and that onboarding runs on it. It does not say how
 a process whose whole guarantee is running when everything else has fallen over
 obtains a contract that lives in
 [`contracts`](https://github.com/mosaic-media/contracts) as generated protobuf.
 `boundary_test.go` currently answers by refusing every non-standard-library
-import, which makes [supervisor#2](../../../../../workspace/supervisor/docs/adr/0002-supervisor-guarantees-an-interface.md) unimplementable as written. That is not a defect in
+import, which makes [supervisor#2](0002-supervisor-guarantees-an-interface.md) unimplementable as written. That is not a defect in
 either record; it is a question neither was asked.
 
 ## Decision

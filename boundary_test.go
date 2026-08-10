@@ -26,7 +26,7 @@ import (
 // that the two are separate repositories with separate release cycles.
 //
 // **`contracts` is the one exception, decided by
-// [platform#76](https://github.com/mosaic-media/architecture/blob/main/docs/adr/0121-two-supervised-images-and-a-diy-path.md)
+// [platform#76](https://github.com/mosaic-media/platform/blob/main/docs/adr/0076-the-signing-key-hierarchy.md)
 // and widened here rather than ahead of the emitter that needed it.** supervisor#2
 // has the Supervisor emit Recovery SDUI, which every client — the Shell, a
 // native app, the embedded renderer — then draws. The alternative was a second

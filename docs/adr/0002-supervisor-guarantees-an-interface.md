@@ -1,6 +1,6 @@
 # Supervisor guarantees an intelligent interface
 
-**Status:** Accepted; built in part. The front door and the ladder's top and bottom rungs exist — normal runtime through the Shell, and a static holding page that says it is not Recovery SDUI rather than impersonating it. The Recovery SDUI emitter and the embedded renderer are unbuilt, as is proactive Shell bootstrap. [supervisor#6](../../../../../workspace/supervisor/docs/adr/0006-two-supervised-images-and-a-diy-path.md) settles how the emitter obtains the contract.
+**Status:** Accepted; built in part. The front door and the ladder's top and bottom rungs exist — normal runtime through the Shell, and a static holding page that says it is not Recovery SDUI rather than impersonating it. The Recovery SDUI emitter and the embedded renderer are unbuilt, as is proactive Shell bootstrap. [supervisor#6](0006-two-supervised-images-and-a-diy-path.md) settles how the emitter obtains the contract.
 **Date:** 2026-07-14
 
 ## Context

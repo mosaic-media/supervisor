@@ -1,12 +1,12 @@
 # Major upgrades are staged, never automatic
 
-**Status:** Proposed and partly superseded: the three levels and the never-automatic invariant stand, and the version they read was corrected by [supervisor#11](../../../../../workspace/supervisor/docs/adr/0011-the-monitored-version-is-the-contract-not-the-artefact.md) — the contract's, not the artefact's. Nothing here is built: there is no schedule, no policy setting and no surface. The fetch/activate split it relies on exists.
+**Status:** Proposed and partly superseded: the three levels and the never-automatic invariant stand, and the version they read was corrected by [supervisor#11](0011-the-monitored-version-is-the-contract-not-the-artefact.md) — the contract's, not the artefact's. Nothing here is built: there is no schedule, no policy setting and no surface. The fetch/activate split it relies on exists.
 **Date:** 2026-08-09
 
-Decides the product question [supervisor#1](../../../../../workspace/supervisor/docs/adr/0001-supervisor-as-host-manager.md)'s
+Decides the product question [supervisor#1](0001-supervisor-as-host-manager.md)'s
 mechanism deliberately left open, and which the update code names as "a decision
 this does not make". Depends on
-[supervisor#8](../../../../../workspace/supervisor/docs/adr/0008-artefacts-are-paired-by-contract-major.md) for something to
+[supervisor#8](0008-artefacts-are-paired-by-contract-major.md) for something to
 check against.
 
 ## Context
@@ -41,7 +41,7 @@ does — which is why this is a policy and not new machinery:
   the download and the verification, so the cutover is a decision somebody takes
   with the bytes already on disk and the wait already spent.
 - **Crossing a contract major is always major**, whatever the artefacts' own
-  version numbers say ([supervisor#8](../../../../../workspace/supervisor/docs/adr/0008-artefacts-are-paired-by-contract-major.md)).
+  version numbers say ([supervisor#8](0008-artefacts-are-paired-by-contract-major.md)).
   It is the upgrade where the Platform and the Shell change what they say to each
   other, so it is the one a person most needs to have chosen — and it is
   computable rather than editorial, which is what makes this rule enforceable
@@ -100,4 +100,4 @@ holding Mosaic to it is the point of using it.
   environment variable, a file — is an implementation question this leaves open,
   and it is the same question the upgrade *trigger* has.
 - **"Check" becomes a thing that runs on its own**, so the rate limit and the
-  freshness gap in [supervisor#8](../../../../../workspace/supervisor/docs/adr/0008-artefacts-are-paired-by-contract-major.md) stop being hypothetical.
+  freshness gap in [supervisor#8](0008-artefacts-are-paired-by-contract-major.md) stop being hypothetical.

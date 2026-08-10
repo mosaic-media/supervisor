@@ -47,7 +47,7 @@ is the process that *caused* the transition. It selected the Generation, built
 it, started it and watched it. It already holds the context that makes these
 failures legible; it simply has nowhere to put it.
 
-It is also, today, **largely unbuilt** ([supervisor#1](../../../../../workspace/supervisor/docs/adr/0001-supervisor-as-host-manager.md)–[platform#4](https://github.com/mosaic-media/platform/blob/main/docs/adr/0004-static-go-module-composition.md)).
+It is also, today, **largely unbuilt** ([supervisor#1](0001-supervisor-as-host-manager.md)–[platform#4](https://github.com/mosaic-media/platform/blob/main/docs/adr/0004-static-go-module-composition.md)).
 This record decides how it will observe, so that when it is built it is not built
 blind. It describes nothing that exists.
 
