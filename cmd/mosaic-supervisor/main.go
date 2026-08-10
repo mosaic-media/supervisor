@@ -322,7 +322,7 @@ func run() error {
 	<-managerDone
 
 	// The door last. Draining is bounded because a held-open push lane
-	// (ADR 0041) never completes on its own, so waiting for it would mean
+	// (contracts#5) never completes on its own, so waiting for it would mean
 	// never shutting down.
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), frontDoorDrain)
 	defer cancel()

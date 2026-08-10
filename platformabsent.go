@@ -63,7 +63,7 @@ var (
 // server that cannot check a password.
 //
 // No tokens and no definitions, and both absences are correct rather than
-// missing work: the skin is Platform-delivered (ADR 0040) and there is no
+// missing work: the skin is Platform-delivered (contracts#4) and there is no
 // Platform, and the tree is primitives only (ADR 0121) so there is nothing to
 // define. A client draws it with the vocabulary it shipped with.
 func (p *authAbsent) Bootstrap(
@@ -129,7 +129,7 @@ func (p *authAbsent) SignOut(
 //
 // Acked rather than refused because they are not requests for information — the
 // client is declaring a route or streaming a keystroke, and the visible result
-// of every one of them arrives on the push lane (ADR 0041), which is answering
+// of every one of them arrives on the push lane (contracts#5), which is answering
 // with the Supervisor's screen regardless of what was asked. Failing them would
 // make the Shell log an intent failure per reconnect for a state where nothing
 // is wrong with the intent.

@@ -155,7 +155,7 @@ func (f *FrontDoor) proxyTo(up Endpoint, onError func(http.ResponseWriter, *http
 	proxy := httputil.NewSingleHostReverseProxy(target)
 
 	// Immediate flush. The session transport has a server-push lane
-	// (ADR 0041), and a proxy that buffers turns "unprompted push" into
+	// (contracts#5), and a proxy that buffers turns "unprompted push" into
 	// "arrives when the buffer fills" — which looks like the push lane not
 	// working rather than like a proxy setting.
 	proxy.FlushInterval = -1
