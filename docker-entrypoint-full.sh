@@ -1,5 +1,5 @@
 #!/bin/sh
-# Entrypoint for the `full` image (ADR 0121): PostgreSQL, then the Supervisor.
+# Entrypoint for the `full` image (supervisor#6): PostgreSQL, then the Supervisor.
 #
 # **Its whole job is the ordering.** The database comes up before the Supervisor
 # and goes down after it, so the Platform is already stopped when the database
@@ -34,7 +34,7 @@ if [ ! -s "${PGDATA}/PG_VERSION" ]; then
 
     # Loopback only. Nothing outside this container has any business reaching
     # the database directly, and the Supervisor is the only public door
-    # (ADR 0005).
+    # (supervisor#2).
     echo "listen_addresses = '127.0.0.1'" >> "${PGDATA}/postgresql.conf"
 fi
 
@@ -64,7 +64,7 @@ su postgres -c "psql -v ON_ERROR_STOP=1 --no-psqlrc -q -tAc \"SELECT 1 FROM pg_d
     || su postgres -c "createdb -O '${DB_USER}' '${DB_NAME}'"
 
 # The Platform reads this; the Supervisor passes its own environment to its
-# children (ADR 0004), so setting it here is what reaches it.
+# children (supervisor#1), so setting it here is what reaches it.
 export MOSAIC_POSTGRES_DSN="${MOSAIC_POSTGRES_DSN:-postgres://${DB_USER}:${DB_PASSWORD}@127.0.0.1:5432/${DB_NAME}?sslmode=disable}"
 
 install -d -o mosaic -g mosaic -m 0755 /var/lib/mosaic /run/mosaic

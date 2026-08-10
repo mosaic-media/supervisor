@@ -2,15 +2,15 @@
 
 The always-on manager that keeps Mosaic running: starts the Platform and the
 interface, and answers for itself when either goes down
-([ADR 0004](https://github.com/mosaic-media/architecture/blob/main/docs/adr/0004-supervisor-as-host-manager.md),
-[ADR 0005](https://github.com/mosaic-media/architecture/blob/main/docs/adr/0005-supervisor-guarantees-an-interface.md)).
+([supervisor#1](../../../workspace/supervisor/docs/adr/0001-supervisor-as-host-manager.md),
+[supervisor#2](../../../workspace/supervisor/docs/adr/0002-supervisor-guarantees-an-interface.md)).
 It is the single public entry point — one TLS port, the Shell at the root,
 the Platform's API behind it — and it is deliberately small: what it used to
 be responsible for has shrunk a long way since those records, as extension
 modules became the Platform's own concern
-([ADR 0079](https://github.com/mosaic-media/architecture/blob/main/docs/adr/0079-the-platform-manages-extension-modules.md))
+([platform#49](https://github.com/mosaic-media/platform/blob/main/docs/adr/0049-the-platform-manages-extension-modules.md))
 and per-install builds were replaced by a CI-built binary
-([ADR 0063](https://github.com/mosaic-media/architecture/blob/main/docs/adr/0063-platform-binary-built-by-ci.md)).
+([platform#38](https://github.com/mosaic-media/platform/blob/main/docs/adr/0038-platform-binary-built-by-ci.md)).
 What is left is process lifecycle, the front door, and activating an artefact
 somebody else built.
 
@@ -22,7 +22,7 @@ full history via `git subtree split`.
 
 - **Runs child processes.** Starts the Platform and the Shell, restarts either
   on exponential backoff, and hands both a shared boot id
-  ([ADR 0060](https://github.com/mosaic-media/architecture/blob/main/docs/adr/0060-the-supervisor-observes-independently.md))
+  ([supervisor#5](../../../workspace/supervisor/docs/adr/0005-the-supervisor-observes-independently.md))
   so all three processes' records stitch into one timeline.
 - **Stops them in order, and keeps answering while it does.** Children stop in
   registration order — the Platform first, the interface last — and the front
@@ -40,7 +40,7 @@ full history via `git subtree split`.
   clients reach the Platform through the front door directly, never through
   the Shell, so stopping the Shell first would drain nothing and would only
   discard the best screen still standing.
-- **Records what it does, to a file** ([ADR 0060](https://github.com/mosaic-media/architecture/blob/main/docs/adr/0060-the-supervisor-observes-independently.md)).
+- **Records what it does, to a file** ([supervisor#5](../../../workspace/supervisor/docs/adr/0005-the-supervisor-observes-independently.md)).
   There is a whole class of failure where the process that would normally
   report is the process that is broken — a migration that will not run, a
   database that is not there, a Generation that starts and immediately dies —
@@ -55,12 +55,12 @@ full history via `git subtree split`.
   Size-capped rotation keeping one previous file is the whole retention policy.
 
   **A file exporter and never OTLP.**
-  [ADR 0060](https://github.com/mosaic-media/architecture/blob/main/docs/adr/0060-the-supervisor-observes-independently.md)
+  [supervisor#5](../../../workspace/supervisor/docs/adr/0005-the-supervisor-observes-independently.md)
   rejected shipping the OTel SDK because an exporter needs a running collector —
   the same aliveness assumption, relocated — and that objection stands: nothing
   here dials, resolves or waits on anything, which is the property that matters
   for the component whose job is to still work.
-  [ADR 0128](https://github.com/mosaic-media/architecture/blob/main/docs/adr/0128-opentelemetry-is-the-telemetry-implementation.md)
+  [sdk#8](https://github.com/mosaic-media/sdk/blob/main/docs/adr/0008-opentelemetry-is-the-telemetry-implementation.md)
   admitted the SDK on exactly that basis, and ended the third hand-written copy
   of Mosaic's telemetry.
 - **Attributes their output.** Three processes share one terminal, so each
@@ -81,21 +81,21 @@ full history via `git subtree split`.
 - **Answers for itself when a child cannot.** When the Platform is down, the
   front door returns the Platform's own error vocabulary so the Shell's
   already-loaded offline screen can render it — the richest layer still
-  available in ADR 0005's degradation ladder. When the Shell itself is down,
+  available in [supervisor#2](../../../workspace/supervisor/docs/adr/0002-supervisor-guarantees-an-interface.md)'s degradation ladder. When the Shell itself is down,
   it serves a small dependency-free holding page, which is the bottom rung
   and says plainly that it is one.
 
 ## What it does not do yet
 
-- **Recovery SDUI.** ADR 0005's richer degradation rungs — the Supervisor
+- **Recovery SDUI.** [supervisor#2](../../../workspace/supervisor/docs/adr/0002-supervisor-guarantees-an-interface.md)'s richer degradation rungs — the Supervisor
   emitting Recovery SDUI, the Shell or an embedded renderer drawing it — are
   not built. The holding page above is a stopgap, not that feature.
 - **Reading those records without shell access.** The file is written; nothing
-  serves it. ADR 0060's two read paths — the Platform merging it into expert
+  serves it. [supervisor#5](../../../workspace/supervisor/docs/adr/0005-the-supervisor-observes-independently.md)'s two read paths — the Platform merging it into expert
   mode when it is up, and the Supervisor showing it when the Platform is down —
   are not built, so today finding out what the Supervisor saw means logging in
   to the host, which is the thing
-  [ADR 0058](https://github.com/mosaic-media/architecture/blob/main/docs/adr/0058-telemetry-storage-retention-and-expert-mode.md)
+  [platform#36](https://github.com/mosaic-media/platform/blob/main/docs/adr/0036-telemetry-storage-retention-and-expert-mode.md)
   set out to avoid.
 - **Signed release binaries and Generation activation** — the artefact half
   of [the roadmap's M4](https://github.com/mosaic-media/architecture/blob/main/docs/roadmap.md).
@@ -110,9 +110,9 @@ else, checked by `TestSupervisorImportsNothingButTheStandardLibrary`. It has to
 be able to run when the Platform cannot, so a compile-time dependency on *it*
 is out — a published contract module is not a running service.
 
-The contract was admitted by [ADR 0121](https://github.com/mosaic-media/architecture/blob/main/docs/adr/0121-the-supervised-container-images.md),
+The contract was admitted by [supervisor#6](../../../workspace/supervisor/docs/adr/0006-two-supervised-images-and-a-diy-path.md),
 so the Supervisor emits Recovery SDUI with the same generated types every other
-emitter uses; Connect by [ADR 0123](https://github.com/mosaic-media/architecture/blob/main/docs/adr/0123-the-supervisor-answers-the-platforms-client-surface.md),
+emitter uses; Connect by [supervisor#7](../../../workspace/supervisor/docs/adr/0007-the-supervisor-answers-the-platforms-client-surface.md),
 so it can *answer* the Platform's own client surface while the Platform is down
 and every client has one SDUI source rather than a hand-coded choice between
 two. The second admission added nothing to the build graph — the contract

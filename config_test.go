@@ -24,7 +24,7 @@ func TestDefaultsAreUsable(t *testing.T) {
 		t.Errorf("want %q, got %q", defaultListenAddr, cfg.ListenAddr)
 	}
 	// Sockets by default, so an install nobody configured is the one with no
-	// second door (ADR 0120).
+	// second door (platform#75).
 	for _, up := range []struct {
 		name string
 		e    Endpoint
@@ -97,7 +97,7 @@ func TestUpstreamTrailingSlashIsTrimmed(t *testing.T) {
 
 // TCP remains available, because the plain dev stack runs the children as
 // separate containers and nothing can share a socket with them. It is a
-// deliberate override rather than the default (ADR 0120).
+// deliberate override rather than the default (platform#75).
 func TestTCPIsStillAvailableAsAnOverride(t *testing.T) {
 	cfg, err := LoadConfig(env(map[string]string{platformURLEnv: "http://127.0.0.1:8081"}))
 	if err != nil {

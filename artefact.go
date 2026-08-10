@@ -20,7 +20,7 @@ import (
 // a Supervisor that downloaded one binary verifies a signature over a small text
 // file and then a digest over the bytes it holds. That is the same shape the
 // module registry uses — sign the aggregate, let the digests inside authenticate
-// the parts (ADR 0065) — and it means adding a target costs no extra signature.
+// the parts (platform#40) — and it means adding a target costs no extra signature.
 //
 // **It is a separate step from downloading on purpose.** Verification takes
 // bytes already on disk, so it can be tested without a network and cannot be
@@ -35,7 +35,7 @@ import (
 // unconfigured build report an attack and an attacked one report a
 // misconfiguration.
 var ErrNoTrustedKey = errors.New("supervisor: this build trusts no release signing key, " +
-	"so it cannot verify a downloaded artefact (ADR 0122: the release key is decided and not yet generated)")
+	"so it cannot verify a downloaded artefact (platform#76: the release key is decided and not yet generated)")
 
 // ErrUnsigned is the refusal when the signature does not verify against any
 // trusted key — the artefact was not signed by Mosaic, or was signed by a key
@@ -113,7 +113,7 @@ func ParseChecksums(b []byte) (Checksums, error) {
 // signature check rather than a hash of a hundred megabytes.
 //
 // keyID is returned for the log. Which key vouched for a release is the only way
-// an overlap window is visible from the outside (ADR 0122), and a development
+// an overlap window is visible from the outside (platform#76), and a development
 // key is meant to be conspicuous in a way a fingerprint in a boot line makes it.
 func VerifyArtefact(path, name string, checksums, signature []byte, keys *Keyring) (keyID string, err error) {
 	if keys == nil || keys.Empty() {

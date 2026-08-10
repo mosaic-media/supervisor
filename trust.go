@@ -10,12 +10,12 @@ import (
 	"fmt"
 )
 
-// The Supervisor's side of ADR 0065's trust model: it downloads the Platform
+// The Supervisor's side of platform#40's trust model: it downloads the Platform
 // and the Shell, so it is the process that must decide whether the bytes it is
 // about to execute are Mosaic's.
 //
 // **This is a different key from the one the Platform holds**
-// ([ADR 0122](https://github.com/mosaic-media/architecture/blob/main/docs/adr/0122-the-signing-key-hierarchy.md)).
+// ([platform#76](https://github.com/mosaic-media/architecture/blob/main/docs/adr/0122-the-signing-key-hierarchy.md)).
 // The Platform embeds `mosaic-official` and verifies the extension-module index
 // with it — a key CI exercises on every module release, whose compromise serves
 // a malicious module into a separate process with controlled egress. This one
@@ -27,7 +27,7 @@ import (
 
 // releasePublicKey is Mosaic's release signing key, and it does not exist yet.
 //
-// ADR 0122 decided the key hierarchy; generating the key is custody work that
+// platform#76 decided the key hierarchy; generating the key is custody work that
 // has to happen off CI and off any agent's machine, so there is nothing to
 // embed. The variable is declared rather than the file faked because **an
 // absent key must fail closed and say so** — see [TrustedKeys]. When the key
@@ -40,7 +40,7 @@ import (
 var releasePublicKey []byte
 
 // DevReleaseKeyEnv names the variable a *development build* reads to supply a
-// release-signing key (ADR 0099's pattern, applied to release artefacts rather
+// release-signing key (platform#55's pattern, applied to release artefacts rather
 // than to the module index).
 //
 // **This build ignores it unless it was built with the `mosaicdev` tag.** The
@@ -59,7 +59,7 @@ type trustedKey struct {
 // Keyring is the set of keys the Supervisor trusts to have signed a release.
 //
 // It holds more than one on purpose, and that is the rotation mechanism rather
-// than a convenience: ADR 0122 rotates by overlap — trust the new key beside
+// than a convenience: platform#76 rotates by overlap — trust the new key beside
 // the old, release, switch signing, drop the old a release later — which is
 // only possible because [Keyring.Verify] tries every key rather than requiring
 // a signature to name one. The Platform's keyring has the same property and has
@@ -148,7 +148,7 @@ func TrustedKeys() (keys *Keyring, development bool, err error) {
 
 	if len(releasePublicKey) == 0 {
 		// No key in this build and no development override. Honest, and the
-		// current state of the world: ADR 0122 decided the hierarchy and the
+		// current state of the world: platform#76 decided the hierarchy and the
 		// key has not been generated.
 		return keys, false, nil
 	}

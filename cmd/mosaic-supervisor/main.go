@@ -2,16 +2,16 @@
 // SPDX-FileCopyrightText: 2026 the Mosaic authors
 
 // Command mosaic-supervisor is Mosaic's host-level manager and single front
-// door (ADR 0004, ADR 0005).
+// door (supervisor#1, supervisor#2).
 //
 // It runs the Platform and the Shell as child processes, mints the boot id
-// they both adopt (ADR 0060), and is the only public HTTP entry point: TLS on
+// they both adopt (supervisor#5), and is the only public HTTP entry point: TLS on
 // one port, the Shell at the root, and the Platform's Connect services,
 // /artwork and /playback behind it.
 //
 // It does not touch extension modules — those are the Platform's throughout
-// (ADR 0079) — and it does not build anything, since per-install builds were
-// deleted in favour of a CI-built binary (ADR 0063).
+// (platform#49) — and it does not build anything, since per-install builds were
+// deleted in favour of a CI-built binary (platform#38).
 package main
 
 import (
@@ -37,7 +37,7 @@ const (
 	shellCommandEnv    = "MOSAIC_SUPERVISOR_SHELL_COMMAND"
 	// The children's working directories. The Platform needs one: it resolves
 	// its extension install directory relative to the working directory
-	// (ADR 0081), so started from the Supervisor's own directory it would
+	// (platform#51), so started from the Supervisor's own directory it would
 	// find none of the modules a user installed.
 	platformDirEnv = "MOSAIC_SUPERVISOR_PLATFORM_DIR"
 	shellDirEnv    = "MOSAIC_SUPERVISOR_SHELL_DIR"
@@ -73,7 +73,7 @@ const platformServingPath = "/mosaic.auth.v1.AuthService/Bootstrap"
 
 // main is the one place still writing through the standard logger, and
 // deliberately. Everything run reports goes through the telemetry it opens
-// (ADR 0060) — but a failure that escapes run may be the failure to load the
+// (supervisor#5) — but a failure that escapes run may be the failure to load the
 // configuration that says where the log file goes, so the last word is on
 // stderr, which needs nothing to have worked.
 func main() {
@@ -93,7 +93,7 @@ func run() error {
 	defer stop()
 
 	// **Everything this process says goes to a file as well as the console**
-	// (ADR 0060). It is the process that survives the failures worth
+	// (supervisor#5). It is the process that survives the failures worth
 	// diagnosing — a Platform that will not start, a Generation that dies on
 	// activation — and until now it said all of that to stdout and nowhere
 	// else, so on a box where nobody is watching the console it said it to no
@@ -105,7 +105,7 @@ func run() error {
 	}
 
 	// The children bind their sockets in here, so it has to exist before
-	// either is started (ADR 0120).
+	// either is started (platform#75).
 	if err := supervisor.PrepareRuntimeDir(cfg.RuntimeDir); err != nil {
 		return err
 	}
@@ -124,7 +124,7 @@ func run() error {
 	activity := &supervisor.Activity{}
 
 	// Where the Supervisor writes what went wrong, for the Platform to adopt
-	// when it is up (ADR 0119). A file rather than a call, because the findings
+	// when it is up (platform#74). A file rather than a call, because the findings
 	// worth having most are the ones made while the Platform is not there.
 	spool := supervisor.OpenSpool(cfg.StateDir, tel)
 
@@ -143,7 +143,7 @@ func run() error {
 	}
 
 	// Which Generation the children belong to, so a Platform can say which one
-	// it is — the fact that settles an upgrade request (ADR 0129). Set before
+	// it is — the fact that settles an upgrade request (platform#77). Set before
 	// any child starts, and again by an activation.
 	if version, ok := provisioner.ActiveGeneration(); ok {
 		manager.SetGenerationID(version)
@@ -160,7 +160,7 @@ func run() error {
 		Env: []string{
 			platformAddrEnv + "=" + cfg.Platform.ListenSpec(),
 			platformHandoffAddrEnv + "=" + cfg.PlatformHandoff.ListenSpec(),
-			// Where to adopt the Supervisor's findings from (ADR 0119). Told
+			// Where to adopt the Supervisor's findings from (platform#74). Told
 			// rather than configured at both ends, like the sockets above: two
 			// halves that have to agree must not be able to disagree.
 			supervisor.SpoolEnv + "=" + spool.Path(),
@@ -182,7 +182,7 @@ func run() error {
 		// A GET at a Connect method is refused with 405 before the handler
 		// runs, which is why this path is safe to poll: it invokes no RPC, so
 		// it neither does the work Bootstrap does nor spends the pre-auth
-		// rate-limit budget it shares with every real client (ADR 0101).
+		// rate-limit budget it shares with every real client (platform#57).
 		Serving: supervisor.NewProbe(cfg.Platform, platformServingPath),
 		// Longer than the default. The Platform may be mid-transaction or
 		// draining a playback session, and a SIGKILL there is the unclean
@@ -311,13 +311,13 @@ func run() error {
 	// The children go first, in registration order — the Platform, then the
 	// Shell — and **the front door stays open while they do**. That ordering
 	// is only worth anything if something is still answering to show it:
-	// closing the front door first would make every rung of ADR 0005's ladder
+	// closing the front door first would make every rung of supervisor#2's ladder
 	// invisible, since a client would get a refused connection either way.
 	//
 	// So a shutdown walks the ladder down rather than falling off it. The
 	// Platform stops and the Shell, still up, renders its offline state; the
 	// Shell stops and the holding page answers; only then does the door
-	// close. It is also what ADR 0033's live handover needs, where the
+	// close. It is also what supervisor#4's live handover needs, where the
 	// Platform is replaced under a Shell that never went away.
 	<-managerDone
 
@@ -343,7 +343,7 @@ const frontDoorDrain = 10 * time.Second
 //
 // **The environment wins over the Generation**, which is the right way round
 // for the two cases that set it: a development stack pointing at binaries it
-// built, and a deployment managing its own processes (ADR 0121's DIY path).
+// built, and a deployment managing its own processes (supervisor#6's DIY path).
 // Both are deliberate acts by somebody who knows what they want run, and
 // neither should be quietly overridden by a Generation that happens to be on
 // disk.

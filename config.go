@@ -2,11 +2,11 @@
 // SPDX-FileCopyrightText: 2026 the Mosaic authors
 
 // Package supervisor is Mosaic's host-level process manager and single front
-// door (ADR 0004, ADR 0005).
+// door (supervisor#1, supervisor#2).
 //
 // What it is responsible for has shrunk a long way from those records:
-// extension modules are the Platform's throughout (ADR 0079) and per-install
-// builds were deleted in favour of a CI-built binary (ADR 0063), so the Build
+// extension modules are the Platform's throughout (platform#49) and per-install
+// builds were deleted in favour of a CI-built binary (platform#38), so the Build
 // Pipeline, Module resolution and Generation *building* are not here and are
 // not coming. What is left is process lifecycle, the front door, and
 // activating an artefact somebody else built.
@@ -36,7 +36,7 @@ const (
 	// Where Generations are kept, and where a release is fetched from.
 	stateDirEnv   = "MOSAIC_SUPERVISOR_STATE_DIR"
 	releaseURLEnv = "MOSAIC_SUPERVISOR_RELEASE_URL"
-	// How much the Supervisor records (ADR 0060). Levels are the only filtering
+	// How much the Supervisor records (supervisor#5). Levels are the only filtering
 	// there is: no sampling, no per-component rules, nothing that could quietly
 	// discard the one record that mattered.
 	logLevelEnv = "MOSAIC_SUPERVISOR_LOG_LEVEL"
@@ -62,7 +62,7 @@ const (
 // The Platform's two surfaces are separate sockets because they are separate
 // audiences: collapsing them would publish the handoff channel — Generation
 // and migration state, deliberately outside the policy gate — to anything that
-// could reach the client API (ADR 0120).
+// could reach the client API (platform#75).
 const (
 	PlatformSocketName        = "platform.sock"
 	PlatformHandoffSocketName = "platform-handoff.sock"
@@ -72,7 +72,7 @@ const (
 // Config is what an operator can set.
 type Config struct {
 	// ListenAddr is the one public port. There is deliberately no second
-	// listener: ADR 0005 makes this the only public HTTP entry point, and a
+	// listener: supervisor#2 makes this the only public HTTP entry point, and a
 	// second one is how the Platform ends up reachable around it.
 	ListenAddr string
 	// CertFile and KeyFile point at an operator-supplied certificate. Both
@@ -85,12 +85,12 @@ type Config struct {
 	RuntimeDir string
 	// Platform, PlatformHandoff and Shell are the upstreams. Each is a Unix
 	// socket in the shipped shape and may be TCP for a development stack that
-	// runs the children as separate containers (ADR 0120).
+	// runs the children as separate containers (platform#75).
 	Platform        Endpoint
 	PlatformHandoff Endpoint
 	Shell           Endpoint
 	// BootID names one start of this process. The Supervisor is the process
-	// that *mints* it and hands it to its children (ADR 0060), so unlike the
+	// that *mints* it and hands it to its children (supervisor#5), so unlike the
 	// Platform and the Shell it adopts an inbound one only when something is
 	// supervising the Supervisor.
 	BootID string
@@ -109,18 +109,18 @@ type Config struct {
 	// nothing. Empty means an install boots on whatever it already has and says
 	// so, which is the honest behaviour until there is somewhere to point.
 	ReleaseURL string
-	// LogLevel is the floor for the Supervisor's own records (ADR 0060). Info
+	// LogLevel is the floor for the Supervisor's own records (supervisor#5). Info
 	// by default, and an unrecognised name resolves to info rather than being
 	// rejected: a typo in a log level must not silence the one process still
 	// able to explain why nothing else started.
 	LogLevel Level
 	// OTLPEndpoint is an OpenTelemetry collector to send records to, as well as
-	// the file — never instead of it (ADR 0128).
+	// the file — never instead of it (sdk#8).
 	//
 	// **Empty by default, and that is the decision rather than an omission.**
-	// [ADR 0060](https://github.com/mosaic-media/architecture/blob/main/docs/adr/0060-the-supervisor-observes-independently.md)
+	// [supervisor#5](https://github.com/mosaic-media/architecture/blob/main/docs/adr/0060-the-supervisor-observes-independently.md)
 	// refused an exporter that needs a running collector, because the Supervisor
-	// may assume nothing else is up — and that reasoning stands. What ADR 0128
+	// may assume nothing else is up — and that reasoning stands. What sdk#8
 	// changed is that OTLP became an *option an operator takes*, so an install
 	// with a collector gets its lifecycle in the same place as everything else
 	// while an install without one is unaffected and unconfigured.
@@ -208,7 +208,7 @@ func (c Config) TLSConfigured() bool { return c.CertFile != "" && c.KeyFile != "
 // PrepareRuntimeDir creates the directory the children's sockets live in.
 //
 // The Supervisor owns it because it is the process that starts before the
-// others. `0700` is the access control ADR 0120 relies on: a socket's own mode
+// others. `0700` is the access control platform#75 relies on: a socket's own mode
 // governs connecting to it, but a directory nobody else may traverse is what
 // stops another user on the box enumerating what is there.
 func PrepareRuntimeDir(dir string) error {

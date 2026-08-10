@@ -22,7 +22,7 @@ import (
 // version with a JS renderer plus a Go text extractor was two.
 //
 // **It is not a general SDUI renderer and must not become one.** It draws the
-// primitives the Supervisor's own emitter produces (ADR 0121: primitives only),
+// primitives the Supervisor's own emitter produces (supervisor#6: primitives only),
 // which is four of them. A client that renders the whole vocabulary is the
 // Shell, and the rung above this one is the Shell drawing this same tree from
 // the JSON at /supervisor/ui. Growing this towards that would be building a

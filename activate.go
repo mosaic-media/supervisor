@@ -74,7 +74,7 @@ type Activator struct {
 	ReadyTimeout time.Duration
 	// Now is the clock, injectable so the evidence file's name is testable.
 	Now func() time.Time
-	// Tel is where the switch is recorded (ADR 0060). A Generation activated
+	// Tel is where the switch is recorded (supervisor#5). A Generation activated
 	// that immediately dies is the failure whose interesting question is what
 	// changed between the previous Generation and this one, and only this
 	// process is in a position to answer it.
@@ -84,7 +84,7 @@ type Activator struct {
 	// their Mosaic went away and they want to know whether it is coming back.
 	Activity *Activity
 	// Spool is where a failed activation is recorded for the Platform to adopt
-	// (ADR 0119). **This is the case that document was written for**: an
+	// (platform#74). **This is the case that document was written for**: an
 	// install that silently undoes its own upgrade and says so only in a log
 	// produces a bug report three days after the evidence rotated away.
 	Spool *Spool
@@ -153,7 +153,7 @@ func (a *Activator) Activate(ctx context.Context, version string) (err error) {
 	// The children already started under this Generation carry the id they were
 	// given; what this fixes is the *next* start — a restart, a crash, a
 	// shutdown and boot — so a Platform never reports a Generation it is not
-	// running (ADR 0129).
+	// running (platform#77).
 	a.Manager.SetGenerationID(version)
 	a.Tel.Info(componentGeneration, "is live",
 		String("version", version), String("from", from),

@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// The upgrade loop (ADR 0129).
+// The upgrade loop (platform#77).
 //
 // **The machinery to upgrade has worked for a while and nothing could ask it
 // to.** Fetch, verify, activate, gate on the surface a client actually reaches,
@@ -22,7 +22,7 @@ import (
 //
 // **The offer goes out on the spool and the request comes back on the handoff.**
 // Both already exist and both already carry exactly this shape of message: the
-// spool is how the Supervisor tells the Platform what it learned (ADR 0119), and
+// spool is how the Supervisor tells the Platform what it learned (platform#74), and
 // the handoff is how the Supervisor asks the Platform what is owed — it already
 // reports a configuration escalation waiting for a process that can perform one.
 //
@@ -49,7 +49,7 @@ const requestPollInterval = 10 * time.Second
 
 // UpgradeRequestPath is where the Platform reports a pending upgrade request, on
 // the private handoff listener beside `/config` — deliberately not on the public
-// port, which is what keeps Generation state off it (ADR 0120).
+// port, which is what keeps Generation state off it (platform#75).
 const UpgradeRequestPath = "/upgrade"
 
 // UpgradeRequest is what the handoff answers.
@@ -77,7 +77,7 @@ type UpgradeWatch struct {
 	// Handoff is the Platform's private listener, where a request appears.
 	Handoff Endpoint
 	// Spool is where an offer and a failure are written for the Platform to
-	// adopt (ADR 0119).
+	// adopt (platform#74).
 	Spool *Spool
 	Tel   *Telemetry
 	// CheckInterval and PollInterval default to the constants above. They exist
@@ -143,7 +143,7 @@ func (w *UpgradeWatch) checkCatalogue(ctx context.Context) {
 		String("active", found.Active),
 		String("signed_by", found.SignedBy))
 	// The offer reaches a person as a row on the register, which is the surface
-	// that already exists for "something needs your attention" (ADR 0125). The
+	// that already exists for "something needs your attention" (supervisor#9). The
 	// register folds repeats into one Issue with a count, so checking every six
 	// hours does not produce a row every six hours.
 	w.Spool.Record(FindingUpgradeAvailable, ContextGeneration, found.Latest.Version, found.SignedBy)

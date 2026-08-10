@@ -11,14 +11,14 @@ import (
 	"time"
 )
 
-// The embedded renderer's two endpoints (ADR 0005's third rung).
+// The embedded renderer's two endpoints (supervisor#2's third rung).
 //
 //	/supervisor/ui/fragment  HTML — the Supervisor's screen, rendered
 //	/supervisor/ui/events    SSE  — a ping when that rendering changes
 //
 // **These serve the recovery page and nothing else.** A client with its own
 // renderer does not come here at all: it calls the Platform's routes, and while
-// the Platform is not serving the Supervisor answers them itself (ADR 0123).
+// the Platform is not serving the Supervisor answers them itself (supervisor#7).
 // There was a `/supervisor/ui` here answering the tree as JSON for exactly that
 // audience, and removing it is the point rather than a tidy-up — an endpoint a
 // client has to know to ask is a rule every client has to implement.

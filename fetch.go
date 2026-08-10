@@ -34,7 +34,7 @@ import (
 // ErrInsecureRelease is the refusal when a release URL, or something it
 // redirects to, is not HTTPS.
 //
-// GitHub is an untrusted host (ADR 0080) and the signature is what protects the
+// GitHub is an untrusted host (platform#50) and the signature is what protects the
 // bytes — but plain HTTP would let anything on the path see and change what is
 // fetched *before* the signature is checked, and a downgrade on a redirect is
 // the classic way that happens without anybody choosing it.
@@ -92,7 +92,7 @@ type Fetcher struct {
 	// Client is the HTTP client. Nil takes a default with a deadline and a
 	// redirect policy that refuses a downgrade to HTTP.
 	Client *http.Client
-	// Tel is where progress and outcome go (ADR 0060). The same telemetry the
+	// Tel is where progress and outcome go (supervisor#5). The same telemetry the
 	// Manager holds, so a fetch and the child start that follows it land in
 	// one file under one boot id.
 	Tel *Telemetry

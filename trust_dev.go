@@ -13,7 +13,7 @@ import (
 	"strings"
 )
 
-// The development release key (ADR 0099's mechanism, ADR 0122's key).
+// The development release key (platform#55's mechanism, platform#76's key).
 //
 // **This file exists only in a `-tags mosaicdev` build.** A shipped Supervisor
 // does not contain the code below, so the mechanism is *absent* rather than

@@ -3,7 +3,7 @@ name: release
 # Publishes the `mosaic-supervisor` binary for every supported target on a
 # version tag, e.g. v0.1.0.
 #
-# **This is the binary a supervised install installs** (ADR 0121): a user runs
+# **This is the binary a supervised install installs** (supervisor#6): a user runs
 # the Supervisor, and it fetches the Platform and the Shell. Until this workflow
 # existed nothing built it outside a developer's container — the entry point to
 # the whole product was the one artefact with no release.
@@ -16,7 +16,7 @@ name: release
 # **Signing is what this leaves out, and the Supervisor is the one repository
 # where that matters twice**: it is the artefact nothing verifies (a user
 # downloads it, and there is no process below it to check a signature), and it
-# is also the *verifier* of the other two. ADR 0122 decides the key hierarchy;
+# is also the *verifier* of the other two. platform#76 decides the key hierarchy;
 # the key itself is custody work that has to happen off CI. `artefact.go`
 # already refuses to activate anything it cannot verify, so what is missing is
 # a key rather than a code path.
@@ -103,9 +103,9 @@ jobs:
           gh release create "$version" --title "$version" --generate-notes --verify-tag \
             dist/mosaic-supervisor-* dist/SHA256SUMS
 
-  # The two supervised images (ADR 0121), built FROM the binaries this workflow
+  # The two supervised images (supervisor#6), built FROM the binaries this workflow
   # already produced — packaging artefacts, not a second build, so a container
-  # deployment and a bare-metal one run identical bytes (ADR 0080).
+  # deployment and a bare-metal one run identical bytes (platform#50).
   #
   # `full` is tagged plainly as well as by name, because it is the default and
   # the one the documentation shows first: `docker run ghcr.io/…/mosaic-supervisor`

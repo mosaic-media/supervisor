@@ -101,7 +101,7 @@ func TestAnUnusedCatalogueIsNotReportedAsMissing(t *testing.T) {
 }
 
 // An externally managed child is not waiting for anything either — the
-// Supervisor fronts it and something else runs it (ADR 0121's DIY path).
+// Supervisor fronts it and something else runs it (supervisor#6's DIY path).
 func TestAnExternallyManagedChildIsNotWaitingForABinary(t *testing.T) {
 	p := provisioner(t, Config{ReleaseURL: ""}, ChildSpec{Name: PlatformChildName})
 	if err := p.EnsureGeneration(context.Background()); err != nil {
@@ -110,7 +110,7 @@ func TestAnExternallyManagedChildIsNotWaitingForABinary(t *testing.T) {
 }
 
 // **A build with no trusted key still starts.** This is the shipped state
-// today — no release key exists yet (ADR 0122) — and an install with binaries
+// today — no release key exists yet (platform#76) — and an install with binaries
 // on disk works fine without one. Refusing to construct would refuse to boot.
 func TestABuildWithNoReleaseKeyStillStarts(t *testing.T) {
 	p := provisioner(t, Config{ReleaseURL: "https://example.invalid/releases"})

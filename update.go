@@ -121,7 +121,7 @@ type Available struct {
 	// Upgrade is whether Latest is newer than Active.
 	Upgrade bool
 	// SignedBy names the key that vouched for the catalogue, which is the only
-	// place an overlap window (ADR 0122) is visible from outside.
+	// place an overlap window (platform#76) is visible from outside.
 	SignedBy string
 }
 

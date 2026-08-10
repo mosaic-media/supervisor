@@ -22,7 +22,7 @@ const maxBufferedLine = 64 << 10
 // interleave with nothing to say which said what — the Platform, the Shell and
 // the Supervisor all logging at once, indistinguishable. It is safe precisely
 // because this is the *console* stream: the Platform's structured records go to
-// its file sink (ADR 0060), and its console sink already emits human-readable
+// its file sink (supervisor#5), and its console sink already emits human-readable
 // text, so a prefix corrupts no machine-read format.
 //
 // Writes are line-buffered and the whole line is emitted under one lock, so a

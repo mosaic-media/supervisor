@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// The Supervisor's findings, spooled to a file (ADR 0119, ADR 0060).
+// The Supervisor's findings, spooled to a file (platform#74, supervisor#5).
 //
 // **The findings it most needs to record are the ones it makes while the
 // Platform is not there to be written to** — a Platform that will not start, a
@@ -42,7 +42,7 @@ const SpoolEnv = "MOSAIC_SUPERVISOR_FINDINGS"
 //
 // **A flat record with no schema version.** It is written by one binary and
 // read by another that may have been upgraded independently, so the reader
-// treats it as untrusted input and skips what it cannot parse (ADR 0119) — a
+// treats it as untrusted input and skips what it cannot parse (platform#74) — a
 // version field would only let it fail more precisely at something it is
 // already required to survive.
 type SpooledFinding struct {
@@ -54,7 +54,7 @@ type SpooledFinding struct {
 }
 
 // The finding types the Supervisor can record. They are strings here rather
-// than a shared package because the Platform owns the vocabulary (ADR 0119) and
+// than a shared package because the Platform owns the vocabulary (platform#74) and
 // the Supervisor may not import it — the boundary is two modules wide and this
 // is not one of them. A type the Platform does not know is skipped on adoption,
 // which is the correct failure for a spool written by a newer binary.
@@ -62,7 +62,7 @@ const (
 	FindingChildUnrecoverable   = "child_unrecoverable"
 	FindingGenerationRolledBack = "generation_rolled_back"
 	FindingProvisionFailed      = "provision_failed"
-	// The offer and its failure (ADR 0129). An available version is a finding
+	// The offer and its failure (platform#77). An available version is a finding
 	// rather than a notification channel of its own, because the register is
 	// already the surface for "something needs your attention" and it already
 	// folds repeats into one Issue with a count — so a check every six hours

@@ -16,7 +16,7 @@ import (
 )
 
 // The Supervisor answering the Platform's own client surface, while there is no
-// Platform to answer it (ADR 0123).
+// Platform to answer it (supervisor#7).
 //
 // **One SDUI source, not two.** A client asks the address it always asks; when
 // the Platform is serving, the front door proxies and the answer is Mosaic's;
@@ -64,7 +64,7 @@ var (
 //
 // No tokens and no definitions, and both absences are correct rather than
 // missing work: the skin is Platform-delivered (contracts#4) and there is no
-// Platform, and the tree is primitives only (ADR 0121) so there is nothing to
+// Platform, and the tree is primitives only (supervisor#6) so there is nothing to
 // define. A client draws it with the vocabulary it shipped with.
 func (p *authAbsent) Bootstrap(
 	_ context.Context, _ *connect.Request[authv1.BootstrapRequest],
@@ -96,7 +96,7 @@ func (p *authAbsent) Invoke(
 // refusal it is.
 //
 // **Unavailable, never Unauthenticated.** A client answers Unauthenticated by
-// discarding its credential and signing out (ADR 0102) — so answering that here
+// discarding its credential and signing out (platform#58) — so answering that here
 // would destroy a perfectly good refresh chain because the server it belongs to
 // was restarting. The chain is fine; the thing that can rotate it is not
 // running, which is what Unavailable says.
@@ -258,7 +258,7 @@ const supervisorStateEvent = "supervisor.state"
 
 // errPlatformAbsent is the one error this file returns, and it is Unavailable
 // rather than Unauthenticated on purpose: a client answers Unauthenticated by
-// discarding its credential (ADR 0102), and the credential is fine — the thing
+// discarding its credential (platform#58), and the credential is fine — the thing
 // that checks it is not running. Signing somebody out because their server
 // restarted would destroy a refresh chain that had done nothing wrong.
 func errPlatformAbsent() error {

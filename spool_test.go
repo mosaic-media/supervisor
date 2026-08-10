@@ -67,7 +67,7 @@ func TestRecordingIntoNowhereIsSafe(t *testing.T) {
 // the two are stated to agree, and it is checked against the register's own
 // documented set rather than against nothing.
 func TestTheSpooledTypesAreTheOnesThePlatformKnows(t *testing.T) {
-	// Mirrors domain.KnownIssueTypes in the Platform (ADR 0119). A type added
+	// Mirrors domain.KnownIssueTypes in the Platform (platform#74). A type added
 	// here and not there is adopted and skipped, silently.
 	known := map[string]bool{
 		"extension_unavailable":  true,

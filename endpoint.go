@@ -26,7 +26,7 @@ const unixHost = "mosaic.socket.invalid"
 // Endpoint is a resolved upstream: how to reach it, and the URL to hand a
 // proxy or a probe.
 //
-// It exists because ADR 0120 gives the same upstream two possible transports.
+// It exists because platform#75 gives the same upstream two possible transports.
 // Everything above it — the front door, the readiness probes — is written
 // against this rather than against a URL, so neither has to know which of the
 // two it got.
@@ -126,7 +126,7 @@ func (e Endpoint) Client(timeout time.Duration) *http.Client {
 // ListenSpec is what a child should be told to bind: a socket path, or a
 // host:port. The child chooses its transport from the shape of it, which keeps
 // one setting per listener rather than an address plus a mode flag that can
-// contradict it (ADR 0120).
+// contradict it (platform#75).
 func (e Endpoint) ListenSpec() string { return e.address }
 
 // Probe is one thing to ask of one endpoint.

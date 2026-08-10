@@ -6,7 +6,7 @@ name: verify
 # it was written; this one was extracted from `platform` with its history and
 # arrived without workflows. So the process a supervised install installs — the
 # one whose whole guarantee is running when the Platform cannot — was the one
-# nothing checked (ADR 0121 names this as the first gap it implies).
+# nothing checked (supervisor#6 names this as the first gap it implies).
 #
 # It runs `docker-compose.test.yml` rather than a transcription of it, so what
 # refuses a push is the command a contributor runs: gofmt, vet, build and the

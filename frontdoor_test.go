@@ -278,7 +278,7 @@ func TestHealthPathIsNotProxied(t *testing.T) {
 }
 
 // **The Supervisor answers the Platform's own routes while the Platform is
-// down** (ADR 0123), so a client has one SDUI source and no rule for choosing
+// down** (supervisor#7), so a client has one SDUI source and no rule for choosing
 // between two.
 //
 // It is checked through a real Connect client against a real server rather than
@@ -375,7 +375,7 @@ func TestThePushLaneEndsWhenThePlatformReturns(t *testing.T) {
 
 // A credential is never answered by something that cannot check it, and the
 // refusal is Unavailable rather than Unauthenticated — a client answers the
-// latter by discarding its refresh chain (ADR 0102), which would sign somebody
+// latter by discarding its refresh chain (platform#58), which would sign somebody
 // out because their server restarted.
 func TestCredentialCallsAreRefusedAsUnavailable(t *testing.T) {
 	front := frontDoor(t, "http://127.0.0.1:1", "http://127.0.0.1:1", func() Health {

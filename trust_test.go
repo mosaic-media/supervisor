@@ -11,7 +11,7 @@ import (
 )
 
 // A shipped build has no release key yet, so it trusts nothing — and that is
-// the honest state rather than a failure: ADR 0122 decided the hierarchy and
+// the honest state rather than a failure: platform#76 decided the hierarchy and
 // the key has not been generated. What matters is that it fails *closed*, which
 // the artefact tests assert at the point of use.
 func TestAShippedBuildTrustsNothingYet(t *testing.T) {

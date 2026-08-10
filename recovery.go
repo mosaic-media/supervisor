@@ -13,7 +13,7 @@ import (
 // Recovery SDUI: what the Supervisor has to say about itself, as a tree every
 // client can draw.
 //
-// [ADR 0005](https://github.com/mosaic-media/architecture/blob/main/docs/adr/0005-supervisor-guarantees-an-interface.md)
+// [supervisor#2](https://github.com/mosaic-media/architecture/blob/main/docs/adr/0005-supervisor-guarantees-an-interface.md)
 // decided the shape and it is one emitter with many renderers. The Shell draws
 // this when it is running, a native client draws it in its own skin, and the
 // embedded renderer draws it for a browser when there is no Shell yet — which
@@ -21,7 +21,7 @@ import (
 // fetches the Shell before the Platform precisely so somebody who opens the URL
 // early sees the install happening.
 //
-// **Primitives only, and no definitions** (ADR 0121). A definition is data the
+// **Primitives only, and no definitions** (supervisor#6). A definition is data the
 // *Platform* delivers on connect, and there is no Platform in the states this
 // describes — that is the whole reason these screens exist. Shipping a
 // definition library inside the Supervisor would put a second copy of the
@@ -36,7 +36,7 @@ import (
 
 // Phase is what the Supervisor is doing, as a closed set.
 //
-// Closed because the emitter branches on it to choose words, which is ADR 0015's
+// Closed because the emitter branches on it to choose words, which is platform#11's
 // test for a closed vocabulary. A phase this build does not know would render
 // as nothing, and "nothing" is the one answer these screens exist to prevent.
 type Phase string
@@ -82,7 +82,7 @@ type RecoveryState struct {
 	// Children is what each child is doing, for the detail a person reads when
 	// the summary is not enough.
 	Children []ChildSnapshot
-	// BootID stitches this screen to the logs of the same boot (ADR 0060).
+	// BootID stitches this screen to the logs of the same boot (supervisor#5).
 	BootID string
 }
 
@@ -123,7 +123,7 @@ func recoveryScreen(s RecoveryState) *ui.Element {
 		body = append(body, line(summary, "sm", "text-faint"))
 	}
 	// The boot id, so a screenshot of this and a log of the same boot can be
-	// put beside each other (ADR 0060). Small and last, because it is for
+	// put beside each other (supervisor#5). Small and last, because it is for
 	// somebody diagnosing rather than for somebody waiting.
 	if s.BootID != "" {
 		body = append(body, line("boot "+s.BootID, "xs", "text-faint"))

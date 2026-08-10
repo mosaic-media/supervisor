@@ -62,7 +62,7 @@ func spoolIn(t *testing.T) (*Spool, func() []SpooledFinding) {
 }
 
 // The offer reaches a person as a finding rather than through a notification
-// channel built for this one feature (ADR 0125, ADR 0129). The register is
+// channel built for this one feature (supervisor#9, platform#77). The register is
 // already the surface for "something needs your attention", and it already folds
 // repeats into one Issue with a count.
 func TestAnAvailableVersionIsSpooledAsAnOffer(t *testing.T) {

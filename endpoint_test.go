@@ -94,7 +94,7 @@ func TestTheFrontDoorProxiesOverSockets(t *testing.T) {
 	}
 }
 
-// A socket's own mode is the access control ADR 0120 rests on, so the
+// A socket's own mode is the access control platform#75 rests on, so the
 // placeholder host must never leak into somewhere it would be taken for a real
 // one — it is what a connection pool keys on and what appears in an error.
 func TestTheSocketPlaceholderHostIsUnresolvable(t *testing.T) {

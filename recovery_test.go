@@ -50,7 +50,7 @@ func everyState() []RecoveryState {
 	}
 }
 
-// **The load-bearing guard.** ADR 0121 says the Supervisor emits primitives and
+// **The load-bearing guard.** supervisor#6 says the Supervisor emits primitives and
 // no definitions: a definition is data the *Platform* delivers on connect, and
 // there is no Platform in the states these screens describe. A component here
 // would render as a placeholder in every client, in exactly the state where a
@@ -210,7 +210,7 @@ func TestAChildThatIsNotComingUpSaysSo(t *testing.T) {
 }
 
 // The boot id is on the screen, so a screenshot and a log of the same boot can
-// be put beside each other (ADR 0060).
+// be put beside each other (supervisor#5).
 func TestTheBootIDIsOnTheScreen(t *testing.T) {
 	text := treeText(RecoveryScreen(RecoveryState{Phase: PhaseStarting, Progress: -1, BootID: "d5cb75b5"}))
 	if !strings.Contains(text, "d5cb75b5") {

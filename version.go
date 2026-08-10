@@ -13,7 +13,7 @@ import (
 //
 // **Hand-written because this module imports the standard library and nothing
 // else**, and `golang.org/x/mod/semver` is not in it. That constraint is
-// ADR 0121's boundary and it is worth more here than a dependency would be: the
+// supervisor#6's boundary and it is worth more here than a dependency would be: the
 // comparison decides whether an install moves forward, and it is forty lines.
 //
 // **It refuses what it cannot parse rather than guessing an order.** A version
@@ -28,7 +28,7 @@ import (
 // releases are plain three-part tags, and a partial semver implementation that
 // silently mis-ordered `v1.0.0-rc1` against `v1.0.0` would be worse than one
 // that refuses it — so anything carrying them is unparseable here and reported
-// as such. Channels are the honest way to ship a pre-release (ADR 0063 does not
+// as such. Channels are the honest way to ship a pre-release (platform#38 does not
 // decide them yet).
 type version struct{ major, minor, patch int }
 

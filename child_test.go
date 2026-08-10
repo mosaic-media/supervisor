@@ -112,7 +112,7 @@ func TestAKilledChildComesBackWithADifferentPID(t *testing.T) {
 }
 
 // The boot id is what stitches the Supervisor's records to its children's
-// (ADR 0060), so it has to reach the child's environment rather than only the
+// (supervisor#5), so it has to reach the child's environment rather than only the
 // Supervisor's own logs.
 func TestTheBootIDReachesTheChildsEnvironment(t *testing.T) {
 	out := t.TempDir() + "/env"
@@ -169,7 +169,7 @@ func TestAnExternallyManagedChildIsReportedNotStarted(t *testing.T) {
 }
 
 // Children stop in registration order — most expendable first, the interface
-// last — so ADR 0005's ladder is walked down rather than skipped. Stopping the
+// last — so supervisor#2's ladder is walked down rather than skipped. Stopping the
 // Shell first would drain nothing (clients reach the Platform through the front
 // door, not through the Shell) and would replace its offline screen with the
 // holding page while the better one was still available.
@@ -339,7 +339,7 @@ func TestAChildIgnoringSIGTERMIsKilledAfterItsGrace(t *testing.T) {
 }
 
 // The working directory is not cosmetic: the Platform resolves its extension
-// install directory relative to it (ADR 0081), so a child started from the
+// install directory relative to it (platform#51), so a child started from the
 // wrong place finds none of the modules a user installed.
 func TestAChildRunsInItsConfiguredWorkingDirectory(t *testing.T) {
 	dir := t.TempDir()
@@ -577,7 +577,7 @@ func TestAChildNeedsANameAndCannotBeRegisteredTwice(t *testing.T) {
 }
 
 // The Generation id reaches the child too, and it is what settles an upgrade
-// request (ADR 0129): a Platform compares the version it was asked to be
+// request (platform#77): a Platform compares the version it was asked to be
 // against the one it is, because the process that would have acknowledged the
 // upgrade has just been replaced by it.
 //

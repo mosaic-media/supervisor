@@ -12,7 +12,7 @@ import (
 
 // The tagged half of the override, exercised in the second pass the container
 // gate runs. Without this pass the development path is code nothing executes,
-// which is how ADR 0099's counterpart in the Platform is gated and for the same
+// which is how platform#55's counterpart in the Platform is gated and for the same
 // reason.
 
 func TestTheDevelopmentKeyIsRead(t *testing.T) {

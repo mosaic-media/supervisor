@@ -23,7 +23,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 )
 
-// The Supervisor's own telemetry (ADR 0060), on OpenTelemetry (ADR 0128).
+// The Supervisor's own telemetry (supervisor#5), on OpenTelemetry (sdk#8).
 //
 // **There is a whole class of failure where the process that would normally
 // report is the process that is broken** — a migration that will not run, a
@@ -33,13 +33,13 @@ import (
 //
 // **It was hand-written for one day.** The record format was duplicated from the
 // Platform's, with a test naming the JSON keys as the only thing holding two
-// binaries' serialisation in step, and ADR 0060 had named that duplication as an
-// open question. ADR 0128 answered it: the shared vocabulary is OpenTelemetry's,
+// binaries' serialisation in step, and supervisor#5 had named that duplication as an
+// open question. sdk#8 answered it: the shared vocabulary is OpenTelemetry's,
 // which neither process owns, and the file is now ordinary OTLP JSON that any
 // collector reads.
 //
 // **The OTel SDK is here and OTLP is not, and that distinction is the whole of
-// ADR 0060's objection honoured.** That record rejected "ships the OTel SDK and
+// supervisor#5's objection honoured.** That record rejected "ships the OTel SDK and
 // exports over OTLP" because an exporter needs a running collector — the same
 // aliveness assumption, relocated. A *file* exporter needs nothing. Nothing here
 // dials, resolves or waits on anything, which is the property that matters for
@@ -55,7 +55,7 @@ import (
 // rather than by which file a line came out of.
 const serviceName = "mosaic-supervisor"
 
-// bootAttribute names the boot id shared with the children (ADR 0060), which is
+// bootAttribute names the boot id shared with the children (supervisor#5), which is
 // what stitches three processes' records into one timeline.
 //
 // A Mosaic-namespaced key because OpenTelemetry has no convention for it: a boot
@@ -161,7 +161,7 @@ func ParseLevel(s string) Level {
 	}
 }
 
-// redaction is the Platform's classification vocabulary (ADR 0056), reduced to
+// redaction is the Platform's classification vocabulary (platform#34), reduced to
 // what the Supervisor can actually produce.
 //
 // **The zero value is `unclassified`, and that is the whole design.** A Field
@@ -559,7 +559,7 @@ func renderConsole(record *logsdk.Record) string {
 // file once the current one passes its cap, keeping exactly one previous.
 //
 // It is the Supervisor's own rather than a dependency because rotation is the
-// whole of ADR 0060's retention policy and a library for it would be a larger
+// whole of supervisor#5's retention policy and a library for it would be a larger
 // surface than the thing it does.
 type rotatingFile struct {
 	mu      sync.Mutex

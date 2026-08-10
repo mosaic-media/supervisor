@@ -17,7 +17,7 @@ import (
 // published SDUI contract.
 //
 // It must be able to run when the Platform cannot — that is the whole of
-// ADR 0005's degradation ladder — so a compile-time dependency on the Platform
+// supervisor#2's degradation ladder — so a compile-time dependency on the Platform
 // would tie the process that stays up to the one that fell over, and would
 // make upgrading either mean upgrading both. This module was extracted from
 // the platform repository, where it was parked before this one existed; the
@@ -26,8 +26,8 @@ import (
 // that the two are separate repositories with separate release cycles.
 //
 // **`contracts` is the one exception, decided by
-// [ADR 0122](https://github.com/mosaic-media/architecture/blob/main/docs/adr/0121-two-supervised-images-and-a-diy-path.md)
-// and widened here rather than ahead of the emitter that needed it.** ADR 0005
+// [platform#76](https://github.com/mosaic-media/architecture/blob/main/docs/adr/0121-two-supervised-images-and-a-diy-path.md)
+// and widened here rather than ahead of the emitter that needed it.** supervisor#2
 // has the Supervisor emit Recovery SDUI, which every client — the Shell, a
 // native app, the embedded renderer — then draws. The alternative was a second
 // emit-side implementation of the wire format inside this module, which is the
@@ -72,7 +72,7 @@ func TestSupervisorImportsNothingButTheStandardLibrary(t *testing.T) {
 			}
 			t.Errorf("%s: imports %q — the Supervisor may depend only on the standard library, "+
 				"%s, %s and %s, so it can run when the Platform cannot "+
-				"(ADR 0121, ADR 0123, ADR 0128)",
+				"(supervisor#6, supervisor#7, sdk#8)",
 				rel, importPath, contractsModule, connectModule, otelModule)
 		}
 		return nil
@@ -91,29 +91,29 @@ func TestSupervisorImportsNothingButTheStandardLibrary(t *testing.T) {
 // brought in.** `contracts` requires `connectrpc.com/connect` itself — it
 // generates the Connect handlers for both client-facing services — so this
 // widening moves a module from transitive to direct rather than admitting
-// anything new to the linked graph. That distinction is why ADR 0123 was
+// anything new to the linked graph. That distinction is why supervisor#7 was
 // affordable: the rule counts direct imports because those are what a reader
 // can audit, but the property it protects is about what has to work when
 // everything else is broken, and that set is unchanged.
 //
-// It is needed because ADR 0123 has the Supervisor *answer* the Platform's own
+// It is needed because supervisor#7 has the Supervisor *answer* the Platform's own
 // client surface while the Platform is down, so a client has one SDUI source
 // rather than two. Implementing the generated handler interfaces means naming
 // `connect.Request` and `connect.ServerStream`.
 const (
 	contractsModule = "github.com/mosaic-media/contracts"
 	connectModule   = "connectrpc.com/connect"
-	// OpenTelemetry, admitted by ADR 0128. The Supervisor takes the *SDK* here
+	// OpenTelemetry, admitted by sdk#8. The Supervisor takes the *SDK* here
 	// rather than the API a module gets, because it is a binary and something
 	// has to wire the pipeline — but it exports to a **file** and never over
-	// OTLP, which is precisely ADR 0060's objection honoured rather than
+	// OTLP, which is precisely supervisor#5's objection honoured rather than
 	// overruled: that record rejected an exporter needing a running collector,
 	// and nothing admitted here dials, resolves or waits on anything.
 	//
 	// It is what ended the third hand-written copy of Mosaic's telemetry. The
 	// duplication it replaced was a record format shared with the Platform by
 	// convention, guarded by a test naming its JSON keys — the open question
-	// ADR 0060's own Consequences left.
+	// supervisor#5's own Consequences left.
 	otelModule = "go.opentelemetry.io/otel"
 )
 
@@ -158,7 +158,7 @@ func TestThePlatformStaysForbidden(t *testing.T) {
 		"google.golang.org/protobuf/encoding/protojson",
 	} {
 		if allowedNonStandard(forbidden) {
-			t.Errorf("%q is allowed — the widening is exactly two modules wide (ADR 0121, ADR 0123)", forbidden)
+			t.Errorf("%q is allowed — the widening is exactly two modules wide (supervisor#6, supervisor#7)", forbidden)
 		}
 	}
 	for _, allowed := range []string{

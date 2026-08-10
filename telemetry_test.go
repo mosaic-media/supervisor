@@ -18,7 +18,7 @@ import (
 	"time"
 )
 
-// The file is ordinary OpenTelemetry, and that is the whole of ADR 0128 as it
+// The file is ordinary OpenTelemetry, and that is the whole of sdk#8 as it
 // applies here.
 //
 // **The test this replaced pinned a JSON key set**, because the record format
@@ -59,7 +59,7 @@ func TestTheFileIsOrdinaryOpenTelemetry(t *testing.T) {
 
 	// The resource is what makes two processes' records tell themselves apart
 	// in a merged read, and the boot id is what stitches them into one timeline
-	// (ADR 0060).
+	// (supervisor#5).
 	res := keyValues(t, record["Resource"])
 	if res["service.name"] != serviceName {
 		t.Errorf("service.name is %q, want %q", res["service.name"], serviceName)
@@ -143,7 +143,7 @@ func TestRecordsBelowTheLevelAreDropped(t *testing.T) {
 	}
 }
 
-// Rotation is the only retention there is (ADR 0060), and one previous file is
+// Rotation is the only retention there is (supervisor#5), and one previous file is
 // kept so a crash loop cannot erase the boot that preceded it.
 func TestTheFileRotatesAndKeepsOnePrevious(t *testing.T) {
 	dir := t.TempDir()
@@ -335,7 +335,7 @@ func rendered(raw any) string {
 
 // A collector that is down must cost records in the collector and none on disk.
 // An install whose observability backend went away must not also lose the local
-// account of why its Platform will not start (ADR 0060, ADR 0128).
+// account of why its Platform will not start (supervisor#5, sdk#8).
 func TestAnUnreachableCollectorDoesNotCostTheFile(t *testing.T) {
 	dir := t.TempDir()
 	var console bytes.Buffer

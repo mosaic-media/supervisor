@@ -55,7 +55,7 @@ type Provisioner struct {
 	// decides whether an absent release catalogue is a problem or simply
 	// unused.
 	Manager *Manager
-	// Spool is where a provisioning failure is recorded (ADR 0119). Nothing
+	// Spool is where a provisioning failure is recorded (platform#74). Nothing
 	// else can report it: an install that cannot provision has no Platform to
 	// tell, which is exactly why the spool is a file.
 	Spool *Spool
@@ -98,7 +98,7 @@ func OpenProvisioner(cfg Config, manager *Manager, activity *Activity, spool *Sp
 	if keys.Empty() {
 		// **A build with no trusted key cannot provision, and says so at boot
 		// rather than at the moment somebody needs it.** This is the shipped
-		// state today: no release key exists yet (ADR 0122), so a release
+		// state today: no release key exists yet (platform#76), so a release
 		// binary carries an empty one. Refusing here would mean refusing to
 		// start, which is worse — an install with binaries on disk works fine.
 		tel.Warn(componentGeneration, "no trusted release key is compiled in, "+
@@ -172,7 +172,7 @@ func (p *Provisioner) EnsureGeneration(ctx context.Context) error {
 	}
 	if p.Development {
 		// At every boot that uses it, like the Platform's development registry
-		// (ADR 0099). A development key signing a development catalogue is a
+		// (platform#55). A development key signing a development catalogue is a
 		// working configuration, and one nobody should be on by accident.
 		p.log("WARNING fetching the first generation against a development release key")
 	}
@@ -193,7 +193,7 @@ func (p *Provisioner) EnsureGeneration(ctx context.Context) error {
 }
 
 // ActiveGeneration is the version running now, if any. It is what the children
-// are told they belong to (ADR 0129).
+// are told they belong to (platform#77).
 func (p *Provisioner) ActiveGeneration() (string, bool) {
 	if p == nil || p.Generations == nil {
 		return "", false

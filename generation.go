@@ -15,8 +15,8 @@ import (
 
 // Generations on disk.
 //
-// A Generation is "Platform, Shell and admitted Modules" — but since ADR 0063
-// moved the build to CI and ADR 0081 took extension modules out of the binary,
+// A Generation is "Platform, Shell and admitted Modules" — but since platform#38
+// moved the build to CI and platform#51 took extension modules out of the binary,
 // what the Supervisor actually holds is a directory of verified binaries and a
 // version naming them. It builds nothing; it selects.
 //

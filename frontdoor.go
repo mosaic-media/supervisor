@@ -36,7 +36,7 @@ const (
 	supervisorHealthPath = "/supervisor/healthz"
 	// The embedded renderer's own two endpoints and its vendored assets.
 	//
-	// **These are the recovery page's, and nobody else's** (ADR 0123). There
+	// **These are the recovery page's, and nobody else's** (supervisor#7). There
 	// was a `/supervisor/ui` beside them serving the same tree as JSON, on the
 	// reasoning that a client should have to ask a different question to get a
 	// Supervisor answer — so that it could never draw one believing it was
@@ -54,7 +54,7 @@ const (
 	recoveryAssetPrefix      = "/supervisor/static/"
 )
 
-// FrontDoor is the single public entry point (ADR 0005). It terminates TLS,
+// FrontDoor is the single public entry point (supervisor#2). It terminates TLS,
 // routes, and answers for itself when an upstream is not there.
 //
 // It is a projection surface and nothing else: it holds no state about a
@@ -72,7 +72,7 @@ type FrontDoor struct {
 	// door depending on it.
 	health func() Health
 	// absent answers the Platform's own client surface while the Platform is
-	// not serving (ADR 0123). It is the whole of "the Supervisor takes over":
+	// not serving (supervisor#7). It is the whole of "the Supervisor takes over":
 	// one address, and the front door choosing who answers it.
 	absent http.Handler
 	// Activity is what the Supervisor is doing to itself, if anything —
@@ -109,7 +109,7 @@ func NewFrontDoor(cfg Config, health func() Health) (*FrontDoor, error) {
 	// The Supervisor's stand-in for the Platform's client surface. Mounted on
 	// the generated service paths, so the two services are reached at exactly
 	// the addresses the Platform serves them at and a client cannot tell it is
-	// being answered from somewhere else — which is the point (ADR 0123).
+	// being answered from somewhere else — which is the point (supervisor#7).
 	mux := http.NewServeMux()
 	authPath, authHandler := authv1connect.NewAuthServiceHandler(&authAbsent{state: fd.recoveryState})
 	mux.Handle(authPath, authHandler)
@@ -200,7 +200,7 @@ func (f *FrontDoor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// **The switch, and the whole of what a client has to know about it:
 		// nothing.** A client calls the one address it always calls. While the
 		// Platform is serving this proxies; while it is not, the Supervisor
-		// answers the same two services with its own state (ADR 0123), and
+		// answers the same two services with its own state (supervisor#7), and
 		// stops the moment the Platform is back.
 		//
 		// Only the client surface. Artwork and playback are bytes the
@@ -267,8 +267,8 @@ func (f *FrontDoor) serveHealth(w http.ResponseWriter, r *http.Request) {
 //
 // It returns a status the *Shell* can interpret rather than a page, because
 // the Shell is still loaded and already renders the offline state — that state
-// is ADR 0031's stated exception and it is the richest available presentation
-// layer in ADR 0005's ladder. Replacing a working client-side screen with a
+// is platform#21's stated exception and it is the richest available presentation
+// layer in supervisor#2's ladder. Replacing a working client-side screen with a
 // server-rendered error page would degrade further than the situation calls
 // for.
 func (f *FrontDoor) platformUnavailable(w http.ResponseWriter, r *http.Request, err error) {
@@ -288,14 +288,14 @@ func (f *FrontDoor) platformUnavailable(w http.ResponseWriter, r *http.Request, 
 
 // shellUnavailable answers when the Shell is not reachable.
 //
-// This is the bottom rung the Supervisor can still answer on: ADR 0005's
+// This is the bottom rung the Supervisor can still answer on: supervisor#2's
 // embedded renderer, which exists for browser bootstrap and Shell failure.
 // It is deliberately one static document with no scripting and no styling
 // system — it must work when everything that would make it prettier is the
 // thing that is broken.
 //
 // It serves the embedded renderer, which fetches the Supervisor's Recovery
-// SDUI and draws it — ADR 0005's third rung, where the second (the Shell
+// SDUI and draws it — supervisor#2's third rung, where the second (the Shell
 // rendering the same tree) is still unbuilt. What it draws is the same
 // envelope a native client would render in its own skin; what it lacks is the
 // design tokens, which are Platform-delivered and absent by definition here.
@@ -309,7 +309,7 @@ func (f *FrontDoor) shellUnavailable(w http.ResponseWriter, r *http.Request, err
 	_, _ = w.Write([]byte(f.recoveryHTML()))
 }
 
-// recoveryPage is the embedded renderer (ADR 0005's third rung), served in
+// recoveryPage is the embedded renderer (supervisor#2's third rung), served in
 // place of the Shell when there is no Shell.
 //
 // **It is a page, not a message.** What it replaced was a static "Mosaic is

@@ -45,7 +45,7 @@ func TestAnUpgradeIsNotReportedAsDegraded(t *testing.T) {
 	if len(state.Children) != 1 {
 		t.Error("the children were dropped from a reported state")
 	}
-	// And the boot id, which is what joins a screenshot to a log (ADR 0060).
+	// And the boot id, which is what joins a screenshot to a log (supervisor#5).
 	if state.BootID == "" {
 		t.Error("the boot id is missing from a reported state")
 	}

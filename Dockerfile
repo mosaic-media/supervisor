@@ -1,9 +1,9 @@
-# The two supervised images (ADR 0121).
+# The two supervised images (supervisor#6).
 #
 # **Packaging artefacts, not builds.** Both copy the binary the release workflow
 # already cross-compiled and compile nothing, so a container deployment and a
 # bare-metal one run identical bytes — the "same binary, different topology"
-# property ADR 0080 turns on.
+# property platform#50 turns on.
 #
 #   lite  Supervisor + ffmpeg              a homelab that already runs PostgreSQL
 #   full  Supervisor + ffmpeg + PostgreSQL one `docker run` and a working Mosaic
@@ -17,7 +17,7 @@
 #
 # ffmpeg is in **both**, and that is not an optimisation. The Platform shells out
 # to ffprobe to decide what a release is and to ffmpeg to re-encode what a client
-# cannot decode (ADR 0050); absent, it relays unprobed and a release with
+# cannot decode (platform#29); absent, it relays unprobed and a release with
 # undecodable audio plays silently. An image that omitted it would be a subtly
 # broken Mosaic whose breakage presents as bad media rather than as an error.
 #
@@ -45,19 +45,19 @@ COPY dist/mosaic-supervisor-linux-${TARGETARCH} /usr/local/bin/mosaic-supervisor
 
 # /var/lib/mosaic holds the Generations and the pointer at the live one, and must
 # survive a restart or every boot would be a first boot. /run/mosaic holds the
-# children's sockets (ADR 0120) and must not.
+# children's sockets (platform#75) and must not.
 VOLUME ["/var/lib/mosaic"]
 
 # **The working directory is inherited by the children, and it is load-bearing.**
 # A child inherits the Supervisor's, and the Platform resolves several paths
 # relative to it — its telemetry log directory, and the extension install
-# directory (ADR 0081). Left at `/` the Platform cannot create either: it exits
+# directory (platform#51). Left at `/` the Platform cannot create either: it exits
 # non-zero, the Supervisor restarts it to its ceiling, the activation reverts,
 # and a first boot fails with "exit status 1" and nothing about a directory. It
 # is set on the base stage so both images have it rather than one.
 WORKDIR /var/lib/mosaic
 
-# 8443 is the one public port. There is deliberately no second: ADR 0005 makes
+# 8443 is the one public port. There is deliberately no second: supervisor#2 makes
 # the front door the only public entry point, and the children listen on Unix
 # sockets inside the container rather than on addresses anything could reach.
 EXPOSE 8443

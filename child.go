@@ -51,7 +51,7 @@ type ChildSnapshot struct {
 	// Unrecoverable says the Supervisor has stopped expecting this child to
 	// come up. It is still retrying — the flag is what makes the condition
 	// reportable rather than something only a log reveals, and it is where
-	// ADR 0119's Issue will be raised once that exists.
+	// platform#74's Issue will be raised once that exists.
 	Unrecoverable bool   `json:"unrecoverable,omitempty"`
 	LastErr       string `json:"lastError,omitempty"`
 }
@@ -60,7 +60,7 @@ type ChildSnapshot struct {
 //
 // **Named because the front door branches on one of them.** Whether the
 // Supervisor answers the Platform's client surface itself turns on the Platform
-// child being ready (ADR 0123), and writing that check against a string literal
+// child being ready (supervisor#7), and writing that check against a string literal
 // far from the registration that produced it would mean a rename switched the
 // takeover off with nothing failing anywhere — the exact shape of silent
 // breakage this repository keeps finding.
@@ -106,12 +106,12 @@ type ChildSpec struct {
 	// probing is the RPC path clients actually use, which correctly refuses a
 	// GET — so demanding success would mean issuing a real RPC, and the one
 	// call reachable before authentication is rate-limited and does real work
-	// (ADR 0101). A probe that consumed a user's budget, or that reported a
+	// (platform#57). A probe that consumed a user's budget, or that reported a
 	// healthy Platform unready because it had spent its own, would cause the
 	// restarts it exists to prevent. An answer of any kind proves the listener
 	// is bound and the mux is routing, which is exactly the gap Readiness
 	// leaves. It is a separate Probe rather than another path because the two
-	// are different listeners — and, under ADR 0120, different sockets, so
+	// are different listeners — and, under platform#75, different sockets, so
 	// they need different dialers and are not interchangeable.
 	Serving *Probe
 	// MaxConsecutiveFailures is how many starts may fail in a row before the
@@ -128,7 +128,7 @@ type ChildSpec struct {
 	HealthyAfter time.Duration
 	// WorkingDir, when set, is the child's working directory. It matters for
 	// more than tidiness: the Platform resolves several paths relative to it,
-	// including the extension install directory (ADR 0081), so a child
+	// including the extension install directory (platform#51), so a child
 	// started from the wrong directory finds none of its installed modules.
 	WorkingDir string
 	// StopGrace is how long this child gets between SIGTERM and SIGKILL.
@@ -178,12 +178,12 @@ type Manager struct {
 	order    []string
 	bootID   string
 	// generationID names the Generation the children belong to, empty when
-	// nothing is managing Generations. It is handed to every child (ADR 0129)
+	// nothing is managing Generations. It is handed to every child (platform#77)
 	// because a Platform cannot otherwise say which Generation it is — and that
 	// comparison is what settles an upgrade request, since the process that
 	// would have acknowledged one has just been replaced by it.
 	generationID string
-	// tel is where the lifecycle goes (ADR 0060). These are the facts a process
+	// tel is where the lifecycle goes (supervisor#5). These are the facts a process
 	// structurally cannot report about itself — that it started, what code it
 	// exited with, that it has failed five times running — so the Supervisor is
 	// the only thing in a position to write them down. Nil discards.
@@ -193,7 +193,7 @@ type Manager struct {
 	out   io.Writer
 	outMu sync.Mutex
 	// spool is where a finding is written for the Platform to adopt
-	// (ADR 0119). Nil is a Manager nobody is collecting findings from.
+	// (platform#74). Nil is a Manager nobody is collecting findings from.
 	spool *Spool
 	// capture, when set, records everything the children write as well as
 	// passing it through — the evidence a failed activation would otherwise
@@ -267,7 +267,7 @@ func (m *Manager) Add(spec ChildSpec) error {
 // best interface still standing.
 //
 // Register children in the order they should be given up, which means most
-// expendable first and the interface last. ADR 0005 has the Supervisor use the
+// expendable first and the interface last. supervisor#2 has the Supervisor use the
 // richest available presentation layer, and a shutdown is where that ladder is
 // walked rather than skipped: the Platform goes, and the Shell — still up —
 // renders its offline state; then the Shell goes and the holding page answers;
@@ -386,7 +386,7 @@ func (m *Manager) superviseOne(ctx context.Context, name string) {
 				Duration("retry_interval", maxBackoff),
 				Err(err))
 			// And recorded, because a line said once is a line that scrolls
-			// away (ADR 0119). On the transition rather than on every failure,
+			// away (platform#74). On the transition rather than on every failure,
 			// for the same reason the log is: the register folds repeats into
 			// a count, but a spool line per minute is a file that grows
 			// without bound on the one install that most needs it readable.
@@ -422,7 +422,7 @@ func (m *Manager) runOnce(ctx context.Context, name string, spec ChildSpec) erro
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	// The boot id reaches every child, which is what stitches the three
-	// processes' records into one timeline (ADR 0060).
+	// processes' records into one timeline (supervisor#5).
 	env := append(os.Environ(), "MOSAIC_BOOT_ID="+m.bootID)
 	if generation := m.generationOf(); generation != "" {
 		env = append(env, "MOSAIC_GENERATION_ID="+generation)
@@ -612,7 +612,7 @@ func (m *Manager) specOf(name string) ChildSpec {
 //
 // For the Platform child this edge is also the **handover**: the front door
 // answers the client surface itself while the Platform is not ready and steps
-// out of the way when it is (ADR 0123), and it reads the same state this sets.
+// out of the way when it is (supervisor#7), and it reads the same state this sets.
 // There is deliberately no second record saying so — one fact, one statement.
 func (m *Manager) setState(name string, state ChildState) {
 	m.mu.Lock()
@@ -761,7 +761,7 @@ func errText(err error) string {
 	return err.Error()
 }
 
-// exitCodeOf reports what a child exited with, for the record (ADR 0060).
+// exitCodeOf reports what a child exited with, for the record (supervisor#5).
 //
 // Three outcomes and they are genuinely different: `0` is a process that exited
 // cleanly when it was not supposed to exit at all — the shape a Platform with a

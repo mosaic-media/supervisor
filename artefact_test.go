@@ -150,7 +150,7 @@ func TestABuildWithNoKeyRefusesDistinctly(t *testing.T) {
 	}
 }
 
-// Rotation by overlap (ADR 0122): a keyring trusting the old and new keys
+// Rotation by overlap (platform#76): a keyring trusting the old and new keys
 // verifies a release signed by either, which is what makes a rotation cost
 // nobody an outage.
 func TestEitherKeyInAnOverlapVerifies(t *testing.T) {
