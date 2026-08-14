@@ -30,6 +30,14 @@ services:
       - pipefail
       - -c
       - |
+        # The decision-record checks. This image carries no interpreter of its
+        # own, so install one if it is absent rather than assume either way —
+        # a check that silently does not run is what this repository's gate
+        # exists to prevent.
+        command -v python3 >/dev/null || { apt-get update -qq && \
+          apt-get install -y -qq --no-install-recommends python3 >/dev/null; }
+        python3 scripts/adr_index.py --repo supervisor --check
+        python3 scripts/adr_lint.py --repo supervisor --exclude 'scripts/adr_*.py'
         gofmt -l . > /tmp/unformatted
         if [ -s /tmp/unformatted ]; then
           echo "These files are not gofmt-clean:" >&2
