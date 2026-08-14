@@ -14,7 +14,7 @@ A record is cited from another repository as `supervisor#N`, written as a link t
 | 6 | [Two supervised images, a DIY path, and the Supervisor's own contract dependency](0006-two-supervised-images-and-a-diy-path.md) | Built in part, and partly superseded: the import boundary was widened again by [supervisor#7](0007-the-supervisor-answers-the-platforms-client-surface.md); |
 | 7 | [The Supervisor answers the Platform's client surface when the Platform is absent](0007-the-supervisor-answers-the-platforms-client-surface.md) | Built. The front door switches, both services are answered, and the Shell needed no code for it. |
 | 8 | [The Platform and the Shell are resolved independently and paired by contract major](0008-artefacts-are-paired-by-contract-major.md) | Proposed and partly superseded: the pairing shape stands, and the component it reads was corrected by [supervisor#12](0012-upgrade-automation-is-staged-against-the-contract-version.md) — pre-1.0 it is the contract minor, not the major. |
-| 12 | [Upgrade automation is staged against the contract version, never the artefact's](0012-upgrade-automation-is-staged-against-the-contract-version.md) | Proposed. Consolidates supervisor#12, supervisor#12 and supervisor#12, whose bodies this replaces. |
+| 12 | [Upgrade automation is staged against the contract version, never the artefact's](0012-upgrade-automation-is-staged-against-the-contract-version.md) | Proposed. |
 
 ## Records this repository depends on
 

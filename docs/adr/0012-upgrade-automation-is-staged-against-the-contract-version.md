@@ -1,6 +1,6 @@
 # Upgrade automation is staged against the contract version, never the artefact's
 
-**Status:** Proposed. Consolidates supervisor#12, supervisor#12 and supervisor#12, whose bodies this replaces. Nothing here is built: there is no schedule, no policy setting and no surface, and neither the caution window the second of those proposed nor the contract reading that replaced it was ever built. The fetch/activate split this relies on exists. Partly supersedes [supervisor#8](0008-artefacts-are-paired-by-contract-major.md): its pairing shape stands, and the component that pairing reads is corrected here — pre-1.0 the contract minor, not the major.
+**Status:** Proposed. Consolidates the three records of the upgrade-caution run, whose bodies this replaces and whose retired numbers stay retired — they are called the first, second and third answer throughout, because a citation to a retired number would either dangle or resolve to a later record that happens to hold it. Nothing here is built: there is no schedule, no policy setting and no surface, and neither the caution window the second of those proposed nor the contract reading that replaced it was ever built. The fetch/activate split this relies on exists. Partly supersedes [supervisor#8](0008-artefacts-are-paired-by-contract-major.md): its pairing shape stands, and the component that pairing reads is corrected here — pre-1.0 the contract minor, not the major.
 **Date:** 2026-08-10
 
 Decides the product question [supervisor#1](0001-supervisor-as-host-manager.md)'s
@@ -27,9 +27,8 @@ a surprise a household should not wake up to.
 **This is the most useful thing in the run, and it is kept as a correction
 rather than replaced by its answer.** Three records in a row got the subject of
 the versioning rule wrong, and the mistake survived two corrections because each
-fixed a smaller thing than the one underneath it. The three are the retired
-supervisor#12, supervisor#12 and supervisor#12, in that order, and they are
-called the first, second and third answer below.
+fixed a smaller thing than the one underneath it. The three are retired, and are
+called the first, second and third answer below, in the order they were written.
 
 **The first answer made caution depend on the size of a change in the
 artefact's own version** — a major of the Platform or the Shell is never
