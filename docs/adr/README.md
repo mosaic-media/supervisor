@@ -8,7 +8,7 @@ A record is cited from another repository as `supervisor#N`, written as a link t
 |---|---|---|
 | 1 | [Supervisor as Mosaic host manager](0001-supervisor-as-host-manager.md) | Accepted |
 | 2 | [Supervisor guarantees an intelligent interface](0002-supervisor-guarantees-an-interface.md) | Accepted; built in part. |
-| 3 | [Supervisor orchestrates isolated runtime builds](0003-supervisor-orchestrates-isolated-builds.md) | Accepted |
+| 3 | [Supervisor orchestrates isolated runtime builds](0003-supervisor-orchestrates-isolated-builds.md) | Accepted, and superseded in its build half by [platform#38](https://github.com/mosaic-media/platform/blob/main/docs/adr/0038-platform-binary-built-by-ci.md), which moves the workspace preparation, the go.mod edit, the generated imports.go, go mod tidy and go build off the user's machine and into CI. |
 | 4 | [Supervisor-driven live-session handover](0004-supervisor-driven-live-handover.md) | Superseded by [contracts#5](https://github.com/mosaic-media/contracts/blob/main/docs/adr/0005-cross-client-transport-two-lane-rpc.md) — its bespoke going-away/reconnect handover folds into [contracts#5](https://github.com/mosaic-media/contracts/blob/main/docs/adr/0005-cross-client-transport-two-lane-rpc.md)'s stream resume (the Subscribe cursor replays or rebuilds across a rolling upgrade). |
 | 5 | [The Supervisor observes independently](0005-the-supervisor-observes-independently.md) | Built in part — the writing, not the reading. |
 | 6 | [Two supervised images, a DIY path, and the Supervisor's own contract dependency](0006-two-supervised-images-and-a-diy-path.md) | Built in part, and partly superseded: the import boundary was widened again by [supervisor#7](0007-the-supervisor-answers-the-platforms-client-surface.md); |

@@ -1,6 +1,15 @@
 # Supervisor orchestrates isolated runtime builds
 
-**Status:** Accepted
+**Status:** Accepted, and **superseded in its build half** by
+[platform#38](https://github.com/mosaic-media/platform/blob/main/docs/adr/0038-platform-binary-built-by-ci.md),
+which moves the workspace preparation, the `go.mod` edit, the generated
+`imports.go`, `go mod tidy` and `go build` off the user's machine and into CI.
+That record names this one; this line is the answering half, which was missing.
+What survives here is the Supervisor's ownership of the *desired composition* and
+of update, rollback, diagnostics and activation — it selects and activates, it no
+longer compiles. Neither half of the replacement is complete: CI builds and
+publishes the binary, and the Supervisor that downloads, verifies and activates a
+release does not exist.
 **Date:** 2026-07-14
 
 ## Context
