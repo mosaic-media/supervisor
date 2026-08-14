@@ -143,7 +143,7 @@ func (w *UpgradeWatch) checkCatalogue(ctx context.Context) {
 		String("active", found.Active),
 		String("signed_by", found.SignedBy))
 	// The offer reaches a person as a row on the register, which is the surface
-	// that already exists for "something needs your attention" (supervisor#9). The
+	// that already exists for "something needs your attention" (supervisor#12). The
 	// register folds repeats into one Issue with a count, so checking every six
 	// hours does not produce a row every six hours.
 	w.Spool.Record(FindingUpgradeAvailable, ContextGeneration, found.Latest.Version, found.SignedBy)

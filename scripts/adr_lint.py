@@ -50,8 +50,12 @@ REPOS = {
     "module-fanart-tv", "module-remote-playback", "module-tmdb",
 }
 
-# The old spelling, in every form the corpus actually uses.
-UNQUALIFIED = re.compile(r"\bADR[\s-]?(\d{1,4})\b")
+# The old spelling, in every form the corpus actually uses. The separator is
+# bounded rather than single: prose wraps, and `ADR\n  0126` is one citation
+# split by a line break. A single-character class missed three of them through
+# the whole migration and reported zero. Bounded rather than `*` so it cannot
+# leap a blank line onto an unrelated numbered list.
+UNQUALIFIED = re.compile(r"\bADR[\s-]{0,6}(\d{1,4})\b")
 # The new one. The repository name is checked against REPOS, not the pattern,
 # so `issue#12` or a CSS id never reads as a citation.
 QUALIFIED = re.compile(r"\b([a-z][a-z0-9-]*)#(\d+)\b")

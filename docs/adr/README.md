@@ -13,10 +13,8 @@ A record is cited from another repository as `supervisor#N`, written as a link t
 | 5 | [The Supervisor observes independently](0005-the-supervisor-observes-independently.md) | Built in part — the writing, not the reading. |
 | 6 | [Two supervised images, a DIY path, and the Supervisor's own contract dependency](0006-two-supervised-images-and-a-diy-path.md) | Built in part, and partly superseded: the import boundary was widened again by [supervisor#7](0007-the-supervisor-answers-the-platforms-client-surface.md); |
 | 7 | [The Supervisor answers the Platform's client surface when the Platform is absent](0007-the-supervisor-answers-the-platforms-client-surface.md) | Built. The front door switches, both services are answered, and the Shell needed no code for it. |
-| 8 | [The Platform and the Shell are resolved independently and paired by contract major](0008-artefacts-are-paired-by-contract-major.md) | Proposed and partly superseded: the pairing shape stands, and the component it reads was corrected by [supervisor#11](0011-the-monitored-version-is-the-contract-not-the-artefact.md) — pre-1.0 it is the contract minor, not the major. |
-| 9 | [Major upgrades are staged, never automatic](0009-major-upgrades-are-never-automatic.md) | Proposed and partly superseded: the three levels and the never-automatic invariant stand, and the version they read was corrected by [supervisor#11](0011-the-monitored-version-is-the-contract-not-the-artefact.md) — the contract's, not the artefact's. |
-| 10 | [Before 1.0, the upgrade caution window shifts by one](0010-before-1-0-the-caution-window-shifts-by-one.md) | Superseded by [supervisor#11](0011-the-monitored-version-is-the-contract-not-the-artefact.md). |
-| 11 | [The monitored version is the contract, not the artefact](0011-the-monitored-version-is-the-contract-not-the-artefact.md) | Proposed. Nothing here is built. |
+| 8 | [The Platform and the Shell are resolved independently and paired by contract major](0008-artefacts-are-paired-by-contract-major.md) | Proposed and partly superseded: the pairing shape stands, and the component it reads was corrected by [supervisor#12](0012-upgrade-automation-is-staged-against-the-contract-version.md) — pre-1.0 it is the contract minor, not the major. |
+| 12 | [Upgrade automation is staged against the contract version, never the artefact's](0012-upgrade-automation-is-staged-against-the-contract-version.md) | Proposed. Consolidates supervisor#12, supervisor#12 and supervisor#12, whose bodies this replaces. |
 
 ## Records this repository depends on
 

@@ -64,7 +64,7 @@ paired on the contract major they declare.**
   [platform#74](https://github.com/mosaic-media/platform/blob/main/docs/adr/0074-operational-findings-are-durable-state.md) finding rather than
   a silence: an install that stopped taking upgrades must say why it stopped.
 - **Crossing a contract major is a major upgrade** under
-  [supervisor#9](0009-major-upgrades-are-never-automatic.md), whatever the version
+  [supervisor#12](0012-upgrade-automation-is-staged-against-the-contract-version.md), whatever the version
   numbers on either side say. It is the one upgrade where both halves change
   what they say to each other, so it is the one that most needs a person.
 - **The verification path is unchanged.** Each artefact is checked against its
