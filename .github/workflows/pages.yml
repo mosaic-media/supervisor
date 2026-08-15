@@ -1,0 +1,31 @@
+name: Pages
+
+# Publishes this repository's README and its decision records to GitHub Pages.
+#
+# **The build lives in `architecture` and there is one of it.** Ten repositories
+# needed this workflow; ten copies of the build would be ten things to keep in
+# step, which is the failure mode this fleet has paid for repeatedly. Change the
+# site there and every caller picks it up.
+#
+# Pages must be set to the "GitHub Actions" source in this repository's settings
+# for the deploy step to succeed.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never two deployments to one Pages site at once, and never cancel one that is
+# part-way through publishing.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  site:
+    uses: mosaic-media/architecture/.github/workflows/pages-site.yml@main
