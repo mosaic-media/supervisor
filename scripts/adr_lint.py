@@ -66,9 +66,14 @@ QUALIFIED_LINK = re.compile(r"\[([a-z][a-z0-9-]*)#(\d+)\](?:\(|\: )([^)\s]+)")
 
 SKIP_DIRS = {".git", "node_modules", "vendor", "site", "dist", "build", "__pycache__", ".venv"}
 SKIP_NAMES = {"package-lock.json", "go.sum"}
+# `.mod` is here because it was missing, and a real citation survived the whole
+# migration inside a `go.mod` comment while the ratchet reported zero. A module
+# file is prose as much as any other: it is where a nested test module explains
+# what it is for. The lesson generalises past this one entry — a suffix list is a
+# blind spot by construction, so a count of zero means "zero in what we looked at".
 TEXT_SUFFIXES = {
     ".md", ".go", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".py", ".sh", ".yml", ".yaml",
-    ".json", ".proto", ".toml", ".txt", ".sql", ".css", ".html", "",
+    ".json", ".proto", ".toml", ".txt", ".sql", ".css", ".html", ".mod", "",
 }
 
 
