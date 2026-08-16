@@ -108,10 +108,9 @@ func recoveryBody(s RecoveryState) []ui.El {
 
 	if s.Progress >= 0 {
 		body = append(body, ui.ProgressBar(
-			// A number, not a string: ProgressBar's value is a number in the
-			// spec while the field primitives' value is a string, so the typed
-			// ui.Value helper is the wrong one here. See the note in
-			// recovery_test.go — it is a contract finding, not a local choice.
+			// A number, not a string: the spec types ProgressBar's value as a
+			// number, while ui.Value is func(string) because a field
+			// primitive's value is text. The typed helper is wrong here.
 			ui.Prop("value", clampProgress(s.Progress)),
 			ui.StatusTone(phaseTone(s.Phase)),
 		))

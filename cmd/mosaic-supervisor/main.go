@@ -103,19 +103,8 @@ func run() error {
 		tel.Info("", "recording to "+path)
 	}
 
-	// The children bind their sockets in here, so it has to exist before
-	// either is started (platform#75).
-	if err := supervisor.PrepareRuntimeDir(cfg.RuntimeDir); err != nil {
+	if err := prepareRuntimeDir(cfg, tel); err != nil {
 		return err
-	}
-	if cfg.Platform.IsUnix() {
-		tel.Info("", "children on sockets under "+cfg.RuntimeDir)
-	} else {
-		// A warning rather than a note: this is the configuration that gives
-		// the Platform a second door, and it should not pass unremarked.
-		tel.Warn("", "the Platform is on TCP rather than a socket, "+
-			"so it can be reached without passing through this process",
-			supervisor.String("address", cfg.Platform.Address()))
 	}
 
 	// What the Supervisor is doing to itself, shared by the components that do
@@ -130,35 +119,16 @@ func run() error {
 	manager := supervisor.NewManager(cfg.BootID, tel)
 	manager.SetSpool(spool)
 
-	// The Generations this install holds, and the machinery to acquire one.
-	// Built before the children are registered because it is what decides what
-	// they run.
-	provisioner, err := supervisor.OpenProvisioner(cfg, manager, activity, spool, tel)
+	provisioner, err := openProvisioner(cfg, manager, activity, spool, tel)
 	if err != nil {
 		return err
-	}
-
-	// Which Generation the children belong to, so a Platform can say which one
-	// it is — the fact that settles an upgrade request (platform#77). Set before
-	// any child starts, and again by an activation.
-	if version, ok := provisioner.ActiveGeneration(); ok {
-		manager.SetGenerationID(version)
 	}
 
 	if err := registerChildren(manager, cfg, provisioner, spool); err != nil {
 		return err
 	}
 
-	// Run owns the children until ctx is cancelled and then stops them in
-	// order. The shutdown path below must wait for this to finish — without
-	// that wait the process would exit the moment the front door closed,
-	// leaving every child to be killed by whatever is above the Supervisor
-	// instead of stopped by it, which is precisely the job it exists to do.
-	managerDone := make(chan struct{})
-	go func() {
-		defer close(managerDone)
-		manager.Run(ctx)
-	}()
+	managerDone := runManager(ctx, manager)
 
 	frontDoor, err := supervisor.NewFrontDoor(cfg, manager.Snapshot)
 	if err != nil {
@@ -166,60 +136,16 @@ func run() error {
 	}
 	frontDoor.Activity = activity
 
-	certificate, generated, err := supervisor.TLSCertificate(cfg)
+	server, err := newTLSServer(cfg, frontDoor, tel)
 	if err != nil {
 		return err
 	}
-	if generated {
-		// Said at every boot on purpose. A self-signed certificate is a
-		// stopgap, and an install that has quietly been on one for a year is
-		// the failure this warning exists to prevent.
-		tel.Warn("", "serving a self-signed certificate generated for this boot; "+
-			"set MOSAIC_SUPERVISOR_TLS_CERT and MOSAIC_SUPERVISOR_TLS_KEY for a real one")
-	}
 
-	server := &http.Server{
-		Addr:    cfg.ListenAddr,
-		Handler: frontDoor,
-		TLSConfig: &tls.Config{
-			Certificates: []tls.Certificate{certificate},
-			MinVersion:   tls.VersionTLS12,
-		},
-		ReadHeaderTimeout: 10 * time.Second,
-		// No write timeout: the session transport's push lane holds a
-		// response open by design, and a timeout here would sever it on a
-		// schedule.
-		IdleTimeout: 120 * time.Second,
-	}
-
-	// No boot id among the fields: every record already carries it, and a
-	// second copy is a second thing to keep in step.
-	tel.Info("", "listening",
-		supervisor.String("address", cfg.ListenAddr),
-		supervisor.String("platform", cfg.Platform.Address()),
-		supervisor.String("shell", cfg.Shell.Address()))
-
-	errs := make(chan error, 1)
-	go func() {
-		if err := server.ListenAndServeTLS("", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errs <- err
-			return
-		}
-		errs <- nil
-	}()
+	errs := serve(server, cfg, tel)
 
 	ensureGeneration(ctx, provisioner, activity, tel)
 
-	// The upgrade loop starts after provisioning, not before. A first boot is
-	// already fetching a Generation; a second fetcher asking the same catalogue
-	// while it does would be two downloads and one confusing screen. By here
-	// there is either a Generation or a recorded reason there is not.
-	go (&supervisor.UpgradeWatch{
-		Updater: provisioner.Update(),
-		Handoff: cfg.PlatformHandoff,
-		Spool:   spool,
-		Tel:     tel,
-	}).Run(ctx)
+	startUpgradeWatch(ctx, provisioner, cfg, spool, tel)
 
 	select {
 	case err := <-errs:
@@ -229,6 +155,47 @@ func run() error {
 
 	shutDown(server, managerDone, tel)
 	return nil
+}
+
+// prepareRuntimeDir makes the directory the children bind their sockets in, so it
+// exists before either is started (platform#75), and says which transport they are
+// on.
+//
+// TCP is a warning rather than a note: it is the configuration that gives the
+// Platform a second door, and it should not pass unremarked.
+func prepareRuntimeDir(cfg supervisor.Config, tel *supervisor.Telemetry) error {
+	if err := supervisor.PrepareRuntimeDir(cfg.RuntimeDir); err != nil {
+		return err
+	}
+	if cfg.Platform.IsUnix() {
+		tel.Info("", "children on sockets under "+cfg.RuntimeDir)
+	} else {
+		tel.Warn("", "the Platform is on TCP rather than a socket, "+
+			"so it can be reached without passing through this process",
+			supervisor.String("address", cfg.Platform.Address()))
+	}
+	return nil
+}
+
+// openProvisioner opens the Generations this install holds and the machinery to
+// acquire one, and tells the Manager which Generation its children belong to.
+//
+// It runs before the children are registered because it is what decides what
+// they run. The Generation id is what lets a Platform say which one it is — the
+// fact that settles an upgrade request (platform#77) — so it is set before any
+// child starts, and again by an activation.
+func openProvisioner(
+	cfg supervisor.Config, manager *supervisor.Manager,
+	activity *supervisor.Activity, spool *supervisor.Spool, tel *supervisor.Telemetry,
+) (*supervisor.Provisioner, error) {
+	provisioner, err := supervisor.OpenProvisioner(cfg, manager, activity, spool, tel)
+	if err != nil {
+		return nil, err
+	}
+	if version, ok := provisioner.ActiveGeneration(); ok {
+		manager.SetGenerationID(version)
+	}
+	return provisioner, nil
 }
 
 // registerChildren adds the two children the Supervisor owns. Registration order
@@ -297,6 +264,74 @@ func registerChildren(
 	return nil
 }
 
+// runManager hands the children to the Manager, which owns them until ctx is
+// cancelled and then stops them in order.
+//
+// The returned channel closes when it has finished, and the shutdown path must
+// wait on it: without that wait the process would exit the moment the front door
+// closed, leaving every child to be killed by whatever is above the Supervisor
+// instead of stopped by it, which is precisely the job it exists to do.
+func runManager(ctx context.Context, manager *supervisor.Manager) <-chan struct{} {
+	managerDone := make(chan struct{})
+	go func() {
+		defer close(managerDone)
+		manager.Run(ctx)
+	}()
+	return managerDone
+}
+
+// newTLSServer puts the front door behind the one public listener.
+//
+// A generated certificate is said at every boot on purpose: a self-signed
+// certificate is a stopgap, and an install that has quietly been on one for a
+// year is the failure that warning exists to prevent.
+func newTLSServer(cfg supervisor.Config, frontDoor http.Handler, tel *supervisor.Telemetry) (*http.Server, error) {
+	certificate, generated, err := supervisor.TLSCertificate(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if generated {
+		tel.Warn("", "serving a self-signed certificate generated for this boot; "+
+			"set MOSAIC_SUPERVISOR_TLS_CERT and MOSAIC_SUPERVISOR_TLS_KEY for a real one")
+	}
+
+	return &http.Server{
+		Addr:    cfg.ListenAddr,
+		Handler: frontDoor,
+		TLSConfig: &tls.Config{
+			Certificates: []tls.Certificate{certificate},
+			MinVersion:   tls.VersionTLS12,
+		},
+		ReadHeaderTimeout: 10 * time.Second,
+		// No write timeout: the session transport's push lane holds a
+		// response open by design, and a timeout here would sever it on a
+		// schedule.
+		IdleTimeout: 120 * time.Second,
+	}, nil
+}
+
+// serve says where every surface is and opens the front door, returning the
+// channel the serve loop's outcome arrives on.
+//
+// No boot id among the fields: every record already carries it, and a second
+// copy is a second thing to keep in step.
+func serve(server *http.Server, cfg supervisor.Config, tel *supervisor.Telemetry) <-chan error {
+	tel.Info("", "listening",
+		supervisor.String("address", cfg.ListenAddr),
+		supervisor.String("platform", cfg.Platform.Address()),
+		supervisor.String("shell", cfg.Shell.Address()))
+
+	errs := make(chan error, 1)
+	go func() {
+		if err := server.ListenAndServeTLS("", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errs <- err
+			return
+		}
+		errs <- nil
+	}()
+	return errs
+}
+
 // ensureGeneration acquires a Generation with the front door already open, and
 // says on the screen as well as in the log when it cannot.
 //
@@ -321,6 +356,24 @@ func ensureGeneration(
 		// and never cleared: the situation does not resolve on its own.
 		activity.Report(supervisor.PhaseDegraded, "", err.Error(), -1)
 	}
+}
+
+// startUpgradeWatch runs the loop that looks for a newer Generation.
+//
+// It starts after provisioning, not before. A first boot is already fetching a
+// Generation; a second fetcher asking the same catalogue while it does would be
+// two downloads and one confusing screen. By the time it runs there is either a
+// Generation or a recorded reason there is not.
+func startUpgradeWatch(
+	ctx context.Context, provisioner *supervisor.Provisioner,
+	cfg supervisor.Config, spool *supervisor.Spool, tel *supervisor.Telemetry,
+) {
+	go (&supervisor.UpgradeWatch{
+		Updater: provisioner.Update(),
+		Handoff: cfg.PlatformHandoff,
+		Spool:   spool,
+		Tel:     tel,
+	}).Run(ctx)
 }
 
 // shutDown stops the children first and closes the front door last.
