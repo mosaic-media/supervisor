@@ -321,14 +321,8 @@ func (m *Manager) superviseOne(ctx context.Context, name string) {
 				m.pollReadiness(ctx, name)
 				return
 			}
-			// Owned, with no binary yet — a first boot before its Generation
-			// has been fetched. Wait rather than return: the Activator sets a
-			// command and signals a restart, and returning here is what left a
-			// provisioned install with two children nothing would ever start.
-			select {
-			case <-ctx.Done():
+			if !m.awaitCommand(ctx, name) {
 				return
-			case <-m.restartOf(name):
 			}
 			continue
 		}
@@ -354,39 +348,7 @@ func (m *Manager) superviseOne(ctx context.Context, name string) {
 		}
 		crossed := m.recordFailure(name, err, healthy, spec.MaxConsecutiveFailures)
 
-		// The exit itself, always, because the shape of a crash loop is the
-		// diagnosis and no single process instance can see it: the exit code,
-		// how long it lasted and how many failures precede it are what
-		// distinguish a database that was briefly away from a binary that
-		// cannot run here at all.
-		// Warn rather than error every time round: an exit here is always
-		// unexpected — a stop the Supervisor asked for and a cancelled context
-		// both returned above — but one exit is a process that fell over and
-		// will be back, which is not the same claim as the ceiling below.
-		m.tel.Warn(componentChild, "exited",
-			String("child", name),
-			Int("exit_code", exitCodeOf(err)),
-			Duration("uptime", time.Since(started)),
-			Int("consecutive_failures", m.failureCountOf(name)),
-			Duration("backoff", backoff),
-			Err(err))
-
-		// Crossing the ceiling is said once, on the transition. Repeating it
-		// every minute is how the one line that matters becomes the one nobody
-		// reads — the exit record above is already written every time round.
-		if crossed {
-			m.tel.Error(componentChild, "is not coming up and is still being retried",
-				String("child", name),
-				Int("consecutive_failures", m.failureCountOf(name)),
-				Duration("retry_interval", maxBackoff),
-				Err(err))
-			// And recorded, because a line said once is a line that scrolls
-			// away (platform#74). On the transition rather than on every failure,
-			// for the same reason the log is: the register folds repeats into
-			// a count, but a spool line per minute is a file that grows
-			// without bound on the one install that most needs it readable.
-			m.spool.Record(FindingChildUnrecoverable, ContextChild, name, errText(err))
-		}
+		m.reportExit(name, err, started, backoff, crossed)
 
 		select {
 		case <-ctx.Done():
@@ -402,6 +364,53 @@ func (m *Manager) superviseOne(ctx context.Context, name string) {
 		// health probe reports what happened rather than a pid that no longer
 		// exists — the hold delays the restart, not the accounting.
 		m.waitWhileHeld(ctx, name)
+	}
+}
+
+// awaitCommand waits for the Activator to set a command and signal a restart —
+// what a first boot does until its Generation arrives. Returning here instead is
+// what left a provisioned install with two children nothing would ever start.
+func (m *Manager) awaitCommand(ctx context.Context, name string) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case <-m.restartOf(name):
+		return true
+	}
+}
+
+// reportExit writes every exit, and the crossing of the child's failure ceiling
+// only on the transition.
+//
+// Every exit, because the shape of a crash loop is the diagnosis and no single
+// process instance can see it: the exit code, the uptime and the failures behind
+// it are what distinguish a database that was briefly away from a binary that
+// cannot run here at all. Warn rather than error every time round: an exit here
+// is always unexpected — a stop the Supervisor asked for and a cancelled context
+// both return before this — but one exit is a process that fell over and will be
+// back, which is not the same claim as the ceiling.
+//
+// The ceiling once, because repeating it every minute is how the one line that
+// matters becomes the one nobody reads. Recorded as well as said, because a line
+// said once scrolls away (platform#74) — and on the transition for the same reason
+// the log is: the register folds repeats into a count, but a spool line a minute
+// grows without bound on the one install that most needs it readable.
+func (m *Manager) reportExit(name string, err error, started time.Time, backoff time.Duration, crossed bool) {
+	m.tel.Warn(componentChild, "exited",
+		String("child", name),
+		Int("exit_code", exitCodeOf(err)),
+		Duration("uptime", time.Since(started)),
+		Int("consecutive_failures", m.failureCountOf(name)),
+		Duration("backoff", backoff),
+		Err(err))
+
+	if crossed {
+		m.tel.Error(componentChild, "is not coming up and is still being retried",
+			String("child", name),
+			Int("consecutive_failures", m.failureCountOf(name)),
+			Duration("retry_interval", maxBackoff),
+			Err(err))
+		m.spool.Record(FindingChildUnrecoverable, ContextChild, name, errText(err))
 	}
 }
 

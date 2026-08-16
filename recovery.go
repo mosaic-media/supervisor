@@ -92,7 +92,10 @@ type RecoveryState struct {
 // change of screen would make that a navigation.
 func RecoveryScreen(s RecoveryState) sdui.Node { return recoveryScreen(s).Build() }
 
-func recoveryScreen(s RecoveryState) *ui.Element {
+func recoveryScreen(s RecoveryState) *ui.Element { return centredPage(recoveryBody(s)) }
+
+// recoveryBody is what the screen says, in the order it says it.
+func recoveryBody(s RecoveryState) []ui.El {
 	body := []ui.El{
 		// A CSS length, not a size token. Icon.size is string|number in the
 		// spec and reaches the element unchanged — there is no token scale
@@ -125,22 +128,23 @@ func recoveryScreen(s RecoveryState) *ui.Element {
 	if s.BootID != "" {
 		body = append(body, line("boot "+s.BootID, "xs", "text-faint"))
 	}
+	return body
+}
 
-	// The centring is in the payload rather than in a client. This tree is the
-	// whole page wherever it is drawn — there is no app shell around it,
-	// because the thing that emits one is what is missing — so it states that
-	// it fills the viewport and centres itself instead of each renderer
-	// carrying a stylesheet rule for it. The embedded renderer is the one
-	// exception and knows it is one: it drops the style keys it has no class
-	// for and centres from the page's own body rule, which is the single place
-	// a rule is cheaper than a third of a style vocabulary.
-	//
-	// Two boxes, because a box cannot centre itself. The outer one fills the
-	// viewport and centres its child on both axes; the inner one is the column,
-	// and the maximum width belongs on it. Putting maxWidth on the outer box
-	// makes that box 520 wide and leaves it against the left edge — which the
-	// embedded page's own `margin: 0 auto` would hide, while a client without
-	// one draws it wrong.
+// centredPage centres the column in the viewport, in the payload rather than in
+// each client's stylesheet.
+//
+// This tree is the whole page wherever it is drawn — there is no app shell around
+// it, because the thing that emits one is what is missing. The embedded renderer
+// is the one exception and knows it is one: it drops the style keys it has no
+// class for and centres from the page's own body rule, which is the single place
+// a rule is cheaper than a third of a style vocabulary.
+//
+// Two boxes, because a box cannot centre itself. Putting maxWidth on the outer
+// box makes that box 520 wide and leaves it against the left edge — which the
+// embedded page's own `margin: 0 auto` would hide, while a client without one
+// draws it wrong.
+func centredPage(body []ui.El) *ui.Element {
 	return ui.Box(
 		ui.Prop("style", map[string]any{
 			"direction": "column", "align": "center", "justify": "center",

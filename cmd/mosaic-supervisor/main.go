@@ -127,9 +127,6 @@ func run() error {
 	// worth having most are the ones made while the Platform is not there.
 	spool := supervisor.OpenSpool(cfg.StateDir, tel)
 
-	// Registration order is stop order — the Platform first, the interface
-	// last. Adding a third child means deciding where in that sequence it
-	// belongs.
 	manager := supervisor.NewManager(cfg.BootID, tel)
 	manager.SetSpool(spool)
 
@@ -148,63 +145,7 @@ func run() error {
 		manager.SetGenerationID(version)
 	}
 
-	if err := manager.Add(supervisor.ChildSpec{
-		Name:       supervisor.PlatformChildName,
-		Command:    childCommand(os.Getenv(platformCommandEnv), provisioner, supervisor.PlatformChildName),
-		Managed:    !external(platformExternalEnv),
-		WorkingDir: os.Getenv(platformDirEnv),
-		// Told where to listen, rather than configured independently: the two
-		// halves have to agree, and a Supervisor dialling a socket its child
-		// was never asked to create fails with no useful error.
-		Env: []string{
-			platformAddrEnv + "=" + cfg.Platform.ListenSpec(),
-			platformHandoffAddrEnv + "=" + cfg.PlatformHandoff.ListenSpec(),
-			// Where to adopt the Supervisor's findings from (platform#74). Told
-			// rather than configured at both ends, like the sockets above: two
-			// halves that have to agree must not be able to disagree.
-			supervisor.SpoolEnv + "=" + spool.Path(),
-		},
-		// The Platform's own handoff listener, which is the private channel
-		// between these two processes and is deliberately not routed through
-		// the front door.
-		//
-		// /readyz, not /healthz: liveness says the process is answering, and
-		// the Platform answers that while it is still running migrations. The
-		// front door must not send a client to a Platform that cannot serve
-		// it yet, so readiness is the question worth asking.
-		Readiness: supervisor.NewProbe(cfg.PlatformHandoff, "/readyz"),
-		// And the surface a client actually arrives at, which is a different
-		// listener on a different socket — `/readyz` is the Platform's opinion
-		// of itself and cannot report that the client-facing listener failed
-		// to bind or that its mux is unrouted.
-		//
-		// A GET at a Connect method is refused with 405 before the handler
-		// runs, which is why this path is safe to poll: it invokes no RPC, so
-		// it neither does the work Bootstrap does nor spends the pre-auth
-		// rate-limit budget it shares with every real client (platform#57).
-		Serving: supervisor.NewProbe(cfg.Platform, platformServingPath),
-		// Longer than the default. The Platform may be mid-transaction or
-		// draining a playback session, and a SIGKILL there is the unclean
-		// stop that costs a recovery on the next boot.
-		StopGrace: 45 * time.Second,
-	}); err != nil {
-		return err
-	}
-	if err := manager.Add(supervisor.ChildSpec{
-		Name:       supervisor.ShellChildName,
-		Command:    childCommand(os.Getenv(shellCommandEnv), provisioner, supervisor.ShellChildName),
-		Managed:    !external(shellExternalEnv),
-		WorkingDir: os.Getenv(shellDirEnv),
-		Env:        []string{shellAddrEnv + "=" + cfg.Shell.ListenSpec()},
-		// The Shell's health endpoint is on the same listener it serves from,
-		// so one probe answers both questions and a serving probe would be
-		// the same request twice.
-		Readiness: supervisor.NewProbe(cfg.Shell, "/healthz"),
-		// It serves static files out of its own binary. There is nothing in
-		// flight to finish, so waiting longer would only lengthen every
-		// shutdown for no gain.
-		StopGrace: 5 * time.Second,
-	}); err != nil {
+	if err := registerChildren(manager, cfg, provisioner, spool); err != nil {
 		return err
 	}
 
@@ -267,26 +208,7 @@ func run() error {
 		errs <- nil
 	}()
 
-	// Provisioning happens after the door is open, and that ordering is the
-	// whole reason the recovery page exists. A first boot fetches two binaries
-	// over whatever connection the box has; somebody who opens the URL during
-	// those minutes must see the install happening rather than a refused
-	// connection. Doing this before serving would make the one screen written
-	// for this moment unreachable in it.
-	//
-	// Its failure is logged and not returned. A Supervisor that cannot
-	// provision must keep running, because the front door is what says why —
-	// exiting would replace an explanation with a closed port.
-	if err := provisioner.EnsureGeneration(ctx); err != nil {
-		tel.Error("", err.Error())
-		// And on the screen, because a log is not a surface an install in this
-		// state has. Nothing is serving and nothing is going to, so the
-		// recovery page is the only thing anybody can reach — and left to the
-		// health inference it would say "Starting" forever, which is both true
-		// and useless. Reported and never cleared: the situation does not
-		// resolve on its own.
-		activity.Report(supervisor.PhaseDegraded, "", err.Error(), -1)
-	}
+	ensureGeneration(ctx, provisioner, activity, tel)
 
 	// The upgrade loop starts after provisioning, not before. A first boot is
 	// already fetching a Generation; a second fetcher asking the same catalogue
@@ -305,24 +227,120 @@ func run() error {
 	case <-ctx.Done():
 	}
 
+	shutDown(server, managerDone, tel)
+	return nil
+}
+
+// registerChildren adds the two children the Supervisor owns. Registration order
+// is stop order — the Platform first, the interface last — so adding a third
+// means deciding where in that sequence it belongs.
+func registerChildren(
+	manager *supervisor.Manager, cfg supervisor.Config,
+	provisioner *supervisor.Provisioner, spool *supervisor.Spool,
+) error {
+	if err := manager.Add(supervisor.ChildSpec{
+		Name:       supervisor.PlatformChildName,
+		Command:    childCommand(os.Getenv(platformCommandEnv), provisioner, supervisor.PlatformChildName),
+		Managed:    !external(platformExternalEnv),
+		WorkingDir: os.Getenv(platformDirEnv),
+		Env: []string{
+			platformAddrEnv + "=" + cfg.Platform.ListenSpec(),
+			platformHandoffAddrEnv + "=" + cfg.PlatformHandoff.ListenSpec(),
+			// Where to adopt the Supervisor's findings from (platform#74). Told
+			// rather than configured at both ends, like the sockets above: two
+			// halves that have to agree must not be able to disagree.
+			supervisor.SpoolEnv + "=" + spool.Path(),
+		},
+		// The Platform's own handoff listener, which is the private channel
+		// between these two processes and is deliberately not routed through
+		// the front door.
+		//
+		// /readyz, not /healthz: liveness says the process is answering, and
+		// the Platform answers that while it is still running migrations. The
+		// front door must not send a client to a Platform that cannot serve
+		// it yet, so readiness is the question worth asking.
+		Readiness: supervisor.NewProbe(cfg.PlatformHandoff, "/readyz"),
+		// And the surface a client actually arrives at, which is a different
+		// listener on a different socket — `/readyz` is the Platform's opinion
+		// of itself and cannot report that the client-facing listener failed
+		// to bind or that its mux is unrouted.
+		//
+		// A GET at a Connect method is refused with 405 before the handler
+		// runs, which is why this path is safe to poll: it invokes no RPC, so
+		// it neither does the work Bootstrap does nor spends the pre-auth
+		// rate-limit budget it shares with every real client (platform#57).
+		Serving: supervisor.NewProbe(cfg.Platform, platformServingPath),
+		// Longer than the default. The Platform may be mid-transaction or
+		// draining a playback session, and a SIGKILL there is the unclean
+		// stop that costs a recovery on the next boot.
+		StopGrace: 45 * time.Second,
+	}); err != nil {
+		return err
+	}
+	if err := manager.Add(supervisor.ChildSpec{
+		Name:       supervisor.ShellChildName,
+		Command:    childCommand(os.Getenv(shellCommandEnv), provisioner, supervisor.ShellChildName),
+		Managed:    !external(shellExternalEnv),
+		WorkingDir: os.Getenv(shellDirEnv),
+		Env:        []string{shellAddrEnv + "=" + cfg.Shell.ListenSpec()},
+		// The Shell's health endpoint is on the same listener it serves from,
+		// so one probe answers both questions and a serving probe would be
+		// the same request twice.
+		Readiness: supervisor.NewProbe(cfg.Shell, "/healthz"),
+		// It serves static files out of its own binary. There is nothing in
+		// flight to finish, so waiting longer would only lengthen every
+		// shutdown for no gain.
+		StopGrace: 5 * time.Second,
+	}); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ensureGeneration acquires a Generation with the front door already open, and
+// says on the screen as well as in the log when it cannot.
+//
+// The ordering is the whole reason the recovery page exists: a first boot fetches
+// two binaries over whatever connection the box has, and somebody who opens the
+// URL during those minutes must see the install happening rather than a refused
+// connection. Doing it before serving would make the one screen written for this
+// moment unreachable in it.
+//
+// Its failure is logged and not returned. A Supervisor that cannot provision must
+// keep running, because the front door is what says why — exiting would replace
+// an explanation with a closed port.
+func ensureGeneration(
+	ctx context.Context, provisioner *supervisor.Provisioner,
+	activity *supervisor.Activity, tel *supervisor.Telemetry,
+) {
+	if err := provisioner.EnsureGeneration(ctx); err != nil {
+		tel.Error("", err.Error())
+		// Nothing is serving and nothing is going to, so the recovery page is
+		// the only thing anybody can reach — and left to the health inference it
+		// would say "Starting" forever, which is both true and useless. Reported
+		// and never cleared: the situation does not resolve on its own.
+		activity.Report(supervisor.PhaseDegraded, "", err.Error(), -1)
+	}
+}
+
+// shutDown stops the children first and closes the front door last.
+//
+// That ordering is only worth anything if something is still answering to show
+// it: closing the front door first would make every rung of supervisor#2's ladder
+// invisible, since a client would get a refused connection either way. So a
+// shutdown walks the ladder down rather than falling off it — the Platform stops
+// and the Shell, still up, renders its offline state; the Shell stops and the
+// holding page answers; only then does the door close. It is also what
+// supervisor#4's live handover needs, where the Platform is replaced under a
+// Shell that never went away.
+//
+// Draining is bounded because a held-open push lane (contracts#5) never completes
+// on its own, so waiting for it would mean never shutting down.
+func shutDown(server *http.Server, managerDone <-chan struct{}, tel *supervisor.Telemetry) {
 	tel.Info("", "shutting down")
 
-	// The children go first, in registration order — the Platform, then the
-	// Shell — and the front door stays open while they do. That ordering is
-	// only worth anything if something is still answering to show it: closing
-	// the front door first would make every rung of supervisor#2's ladder
-	// invisible, since a client would get a refused connection either way.
-	//
-	// So a shutdown walks the ladder down rather than falling off it. The
-	// Platform stops and the Shell, still up, renders its offline state; the
-	// Shell stops and the holding page answers; only then does the door
-	// close. It is also what supervisor#4's live handover needs, where the
-	// Platform is replaced under a Shell that never went away.
 	<-managerDone
 
-	// The door last. Draining is bounded because a held-open push lane
-	// (contracts#5) never completes on its own, so waiting for it would mean
-	// never shutting down.
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), frontDoorDrain)
 	defer cancel()
 	if err := server.Shutdown(shutdownCtx); err != nil {
@@ -330,7 +348,6 @@ func run() error {
 	}
 
 	tel.Info("", "stopped")
-	return nil
 }
 
 // frontDoorDrain bounds how long the door takes to close once both children
