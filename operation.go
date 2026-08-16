@@ -20,12 +20,11 @@ var errRestartRequested = errors.New("restart requested")
 // Hold stops the watchdog acting on a child while an operation owns it, and
 // returns the release.
 //
-// This is the guard Home Assistant's Supervisor has and Mosaic did not: theirs
-// refuses to act "while a task is in progress", and without it an operation
-// that stops the Platform on purpose — activating a Generation, applying a
-// Restart-class configuration change — races the restart loop, which sees a
-// dead child and brings it back underneath the operation that was replacing
-// it.
+// Without it an operation that stops the Platform on purpose — activating a
+// Generation, applying a Restart-class configuration change — races the restart
+// loop, which sees a dead child and brings it back underneath the operation
+// that was replacing it. Home Assistant's supervisor carries the same guard: it
+// refuses to act "while a task is in progress".
 //
 // Holds nest, so two operations can overlap without the first release
 // unblocking the child from under the second. Release is idempotent: calling
@@ -87,11 +86,11 @@ const holdPollInterval = 100 * time.Millisecond
 // asking a process to stop and seeing the replacement running is exactly the
 // window where the watchdog would otherwise intervene.
 //
-// It returns once the replacement is running, not once it is *ready* —
-// readiness is what the probes report and what a caller should wait on if it
-// needs to know the new process is serving. Blocking here would make a
-// Restart of a Platform that cannot start hang until its ceiling instead of
-// reporting what happened.
+// It returns once the replacement is running, not once it is ready — readiness
+// is what the probes report and what a caller should wait on if it needs to
+// know the new process is serving. Blocking here would make a Restart of a
+// Platform that cannot start hang until its ceiling instead of reporting what
+// happened.
 func (m *Manager) Restart(ctx context.Context, name string) error {
 	m.mu.Lock()
 	c, ok := m.children[name]
@@ -103,7 +102,7 @@ func (m *Manager) Restart(ctx context.Context, name string) error {
 		m.mu.Unlock()
 		// An externally managed child is somebody else's to restart, and
 		// pretending otherwise would report success for something that never
-		// happened. A *managed* child with no command is the other case: it is
+		// happened. A managed child with no command is the other case: it is
 		// waiting for its first one, and this is the signal that it has one.
 		return fmt.Errorf("child %q is externally managed; the Supervisor does not own its lifecycle", name)
 	}

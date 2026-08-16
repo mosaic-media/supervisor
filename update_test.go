@@ -182,10 +182,10 @@ func TestUpgradeFetchesVerifiesAndActivatesTheLatest(t *testing.T) {
 	}
 }
 
-// **The load-bearing test.** The artefacts' signature stops the bytes being
-// swapped; the catalogue's stops the *choice of version* being. Without the
-// second, a host can pin an install to an old, genuinely-signed release forever
-// and every signature still checks out.
+// TestAnUnsignedCatalogueIsRefused is the load-bearing test. The artefacts'
+// signature stops the bytes being swapped; the catalogue's stops the choice of
+// version being swapped. Without the second, a host can pin an install to an
+// old, genuinely-signed release forever and every signature still checks out.
 func TestAnUnsignedCatalogueIsRefused(t *testing.T) {
 	h := newReleaseHost(t, "v0.1.0")
 	u, _, _ := h.updater(t)
@@ -234,7 +234,7 @@ func TestUpgradeWhenCurrentSaysSo(t *testing.T) {
 	}
 }
 
-// **Upgrade never moves backwards.** A signed catalogue that offers only old
+// Upgrade never moves backwards. A signed catalogue that offers only old
 // versions is still a signed catalogue, so refusing the downgrade is the half
 // of the rollback-attack defence the signature cannot provide.
 func TestUpgradeRefusesToMoveBackwards(t *testing.T) {

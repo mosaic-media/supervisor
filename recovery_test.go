@@ -50,15 +50,15 @@ func everyState() []RecoveryState {
 	}
 }
 
-// **The load-bearing guard.** supervisor#6 says the Supervisor emits primitives and
-// no definitions: a definition is data the *Platform* delivers on connect, and
-// there is no Platform in the states these screens describe. A component here
-// would render as a placeholder in every client, in exactly the state where a
-// person has nothing else to read.
+// TestTheRecoveryScreenUsesOnlyPrimitives is the load-bearing guard. supervisor#6
+// says the Supervisor emits primitives and no definitions: a definition is data
+// the Platform delivers on connect, and there is no Platform in the states these
+// screens describe. A component here would render as a placeholder in every
+// client, in exactly the state where a person has nothing else to read.
 //
-// It is checked against `sdui.Primitives` — the contract's own generated
-// vocabulary — rather than a list maintained here, so a primitive renamed in
-// the contract fails this rather than drifting.
+// It is checked against sdui.Primitives — the contract's own generated
+// vocabulary — rather than a list maintained here, so a primitive renamed in the
+// contract fails this rather than drifting.
 func TestTheRecoveryScreenUsesOnlyPrimitives(t *testing.T) {
 	allowed := map[string]bool{}
 	for _, p := range sdui.Primitives {
@@ -124,9 +124,9 @@ func TestEveryPhaseSaysSomething(t *testing.T) {
 	}
 }
 
-// **None of them says "please wait".** In these states the Platform cannot
-// answer, so this text is a person's only source of the difference between a
-// thirty-second install and a box that will never come up.
+// No phase says "please wait". In these states the Platform cannot answer, so
+// this text is a person's only source of the difference between a thirty-second
+// install and a box that will never come up.
 func TestNoPhaseTellsSomebodyToWaitWithoutSayingWhatFor(t *testing.T) {
 	for _, state := range everyState() {
 		text := strings.ToLower(treeText(RecoveryScreen(state)))

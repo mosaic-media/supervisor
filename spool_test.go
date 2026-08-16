@@ -42,9 +42,9 @@ func TestAFindingSurvivesTheProcessThatMadeIt(t *testing.T) {
 	}
 }
 
-// **Nothing here is fatal, and nothing panics.** A Supervisor that failed to
-// start a child, and then failed *because* it could not write that down, would
-// be the machinery defeating the thing it is for.
+// Nothing here is fatal, and nothing panics. A Supervisor that failed to start a
+// child, and then failed because it could not write that down, would be the
+// machinery defeating the thing it is for.
 func TestRecordingIntoNowhereIsSafe(t *testing.T) {
 	var absent *Spool
 	absent.Record(FindingProvisionFailed, ContextHost, "", "no catalogue")

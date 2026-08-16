@@ -10,25 +10,21 @@ import (
 
 // What the Supervisor is doing right now, for the screen that says so.
 //
-// **This is the missing half of a progress bar that was built twice.** The
-// emitter draws one when a phase reports a measurable fraction, and all three
-// renderers draw what the emitter emits — but the front door inferred its phase
-// from the health report alone, which can only distinguish starting, degraded
-// and ready. `provisioning` and `upgrading` were never reported by anything, so
-// no bar was ever drawn: a first boot downloading two binaries looked exactly
-// like a box that would never come up, which is the one distinction the whole
-// surface exists to make.
-//
-// The Fetcher and the Activator know. They report here, and the front door
-// prefers what they say over what it can infer.
+// A health report can only distinguish starting, degraded and ready, so the
+// front door cannot infer provisioning or upgrading — nothing draws a progress
+// bar for them unless something reports them here. The Fetcher and the
+// Activator do, and the front door prefers what they say over what it can
+// infer. Without that, a first boot downloading two binaries looks exactly like
+// a box that will never come up, which is the one distinction this surface
+// exists to make.
 
 // Activity is the one operation the Supervisor is performing, if any.
 //
-// **One at a time, and that is a statement rather than a limitation.** Fetching
-// and activating a Generation are steps of a single sequence, and there is no
-// arrangement in which two run at once — a second would be two upgrades racing
-// for the same children. So this holds one, and a report replaces whatever came
-// before it rather than joining a set that would then need reconciling.
+// It holds one at a time. Fetching and activating a Generation are steps of a
+// single sequence and there is no arrangement in which two run at once — a
+// second would be two upgrades racing for the same children — so a report
+// replaces whatever came before it rather than joining a set that would then
+// need reconciling.
 type Activity struct {
 	mu      sync.Mutex
 	present bool
@@ -48,11 +44,10 @@ func (a *Activity) Report(phase Phase, version, detail string, progress float64)
 	a.state = RecoveryState{Phase: phase, Version: version, Detail: detail, Progress: progress}
 }
 
-// Done clears it. Called when the operation finishes, successfully or not:
-// after a failure the honest screen is whatever the children are actually
+// Done clears it. It is called when the operation finishes, successfully or
+// not: after a failure the honest screen is whatever the children are actually
 // doing, which is what the front door infers on its own. A failed download left
-// showing "downloading" is the stuck-progress-bar every installer has and
-// nobody trusts.
+// showing "downloading" is a progress bar stuck forever.
 func (a *Activity) Done() {
 	if a == nil {
 		return
@@ -75,10 +70,10 @@ func (a *Activity) Current() (RecoveryState, bool) {
 
 // fetchProgress reports a download as a fraction of the whole release.
 //
-// **Counted in artefacts, with the current one's bytes as the fine detail.** An
+// It counts artefacts, with the current one's bytes as the fine detail. An
 // artefact's size is only knowable from a Content-Length, which is a claim by
-// the server — the download cap is deliberately enforced on the way through
-// rather than from that header, for exactly that reason. A bar may believe a
+// the server, and the download cap is deliberately enforced on the way through
+// rather than from that header for exactly that reason. A bar may believe a
 // claim where a limit may not: the worst a lying Content-Length does here is
 // draw a bar badly, and counting whole artefacts means it still advances
 // truthfully even when every claim is absent.

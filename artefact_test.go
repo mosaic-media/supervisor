@@ -73,10 +73,10 @@ func TestAGenuineArtefactVerifies(t *testing.T) {
 	}
 }
 
-// **The load-bearing refusal.** A file that is not in the signed set is
-// unsigned, however genuine the signature over the set is. Without this an
-// attacker who can add a file to a release directory has it executed on the
-// strength of a valid signature over everything else.
+// TestAnArtefactNotInTheChecksumsIsRefused pins the load-bearing refusal. A file
+// that is not in the signed set is unsigned, however genuine the signature over
+// the set is. Without this an attacker who can add a file to a release directory
+// has it executed on the strength of a valid signature over everything else.
 func TestAnArtefactNotInTheChecksumsIsRefused(t *testing.T) {
 	r := newSignedRelease(t, "the platform binary")
 
@@ -133,9 +133,9 @@ func TestAnUntrustedSignerIsRefused(t *testing.T) {
 	}
 }
 
-// **"Cannot verify" and "did not verify" are different facts** and must not
-// collapse into one message: an unconfigured build would otherwise report an
-// attack, and an attacked one a misconfiguration.
+// "Cannot verify" and "did not verify" are different facts and must not collapse
+// into one message: an unconfigured build would otherwise report an attack, and
+// an attacked one a misconfiguration.
 func TestABuildWithNoKeyRefusesDistinctly(t *testing.T) {
 	r := newSignedRelease(t, "the platform binary")
 

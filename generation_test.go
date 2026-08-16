@@ -50,10 +50,10 @@ func TestAFreshInstallHasNoActiveGeneration(t *testing.T) {
 	}
 }
 
-// **The load-bearing refusal.** A download interrupted halfway leaves a
-// directory of plausible binaries, and the marker is the only thing that
-// distinguishes it from a good Generation. Activating one would exec a
-// partially-downloaded Platform.
+// TestAnIncompleteGenerationCannotBeActivated pins the load-bearing refusal. A
+// download interrupted halfway leaves a directory of plausible binaries, and the
+// marker is the only thing that distinguishes it from a good Generation.
+// Activating one would exec a partially-downloaded Platform.
 func TestAnIncompleteGenerationCannotBeActivated(t *testing.T) {
 	g := generations(t)
 	if _, err := g.Stage("v0.1.0"); err != nil {
@@ -97,7 +97,7 @@ func TestActivationKeepsThePredecessorAsTheRollbackTarget(t *testing.T) {
 	}
 }
 
-// **A rollback swaps rather than drops.** "The upgrade broke and so did the
+// A rollback swaps rather than drops. "The upgrade broke and so did the
 // rollback" is exactly when somebody needs the option of going back to where
 // they started, so the version rolled away from stays reachable.
 func TestARollbackSwapsSoItCanBeUndone(t *testing.T) {
@@ -187,8 +187,8 @@ func TestTheActiveGenerationCannotBeDiscarded(t *testing.T) {
 	}
 }
 
-// **A version reaches this from a release catalogue — remote input — and is
-// used to build a path.** A traversal ends with the Supervisor executing a file
+// A version reaches this from a release catalogue — remote input — and is used
+// to build a path. A traversal ends with the Supervisor executing a file
 // somebody else chose.
 func TestAVersionCannotEscapeTheGenerationsDirectory(t *testing.T) {
 	g := generations(t)

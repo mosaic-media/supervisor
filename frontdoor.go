@@ -36,19 +36,16 @@ const (
 	supervisorHealthPath = "/supervisor/healthz"
 	// The embedded renderer's own two endpoints and its vendored assets.
 	//
-	// **These are the recovery page's, and nobody else's** (supervisor#7). There
-	// was a `/supervisor/ui` beside them serving the same tree as JSON, on the
-	// reasoning that a client should have to ask a different question to get a
-	// Supervisor answer — so that it could never draw one believing it was
-	// Mosaic. That reasoning was wrong in the way that matters: it made every
-	// client responsible for knowing about two sources and for choosing between
-	// them, which is a rule that has to be reimplemented, correctly, in every
-	// client anyone ever writes. The Supervisor now answers the Platform's own
-	// routes and says who is speaking in the payload, which costs one event
-	// type and no client code at all.
+	// These are the recovery page's, and nobody else's (supervisor#7). A client
+	// with its own renderer reaches the Platform's routes, which the Supervisor
+	// answers itself while the Platform is down, saying who is speaking in the
+	// payload. Do not add a Supervisor-specific route for that audience: it
+	// makes every client responsible for knowing about two sources and for
+	// choosing between them, a rule that then has to be reimplemented correctly
+	// in every client anyone ever writes.
 	//
-	// The fragment is that same tree rendered to HTML; the event stream carries
-	// a signal that it changed, never the content.
+	// The fragment is the recovery tree rendered to HTML; the event stream
+	// carries a signal that it changed, never the content.
 	supervisorUIFragmentPath = "/supervisor/ui/fragment"
 	supervisorUIEventsPath   = "/supervisor/ui/events"
 	recoveryAssetPrefix      = "/supervisor/static/"
@@ -59,8 +56,8 @@ const (
 //
 // It is a projection surface and nothing else: it holds no state about a
 // session, reads no database, and never rewrites a body. The Platform's
-// health/handoff listener is deliberately *not* routed — that is the private
-// channel between these two processes and publishing it would put Generation
+// health/handoff listener is deliberately not routed — that is the private
+// channel between these two processes, and publishing it would put Generation
 // and migration state on the public port.
 type FrontDoor struct {
 	platform *httputil.ReverseProxy
@@ -122,14 +119,12 @@ func NewFrontDoor(cfg Config, health func() Health) (*FrontDoor, error) {
 
 // platformServing reports whether the Platform is up enough to be proxied to.
 //
-// **Read from the health report rather than discovered by dialling.** The
+// It reads the health report rather than discovering by dialling. The
 // alternative — proxy and fall back when the dial fails — cannot work for the
 // push lane: by the time a stream's dial has failed the request body is gone and
 // there is nothing left to hand to a second handler. The cost is a lag of one
 // health probe when the Platform dies, during which a client is told
-// `unavailable` by the proxy's error handler and retries; that is the behaviour
-// it had before this existed, so the lag degrades to the old path rather than to
-// a new failure.
+// "unavailable" by the proxy's error handler and retries.
 func (f *FrontDoor) platformServing() bool {
 	if f.health == nil {
 		// Nothing is supervising children, so there is no Platform whose
@@ -197,16 +192,16 @@ func (f *FrontDoor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(r.URL.Path, recoveryAssetPrefix):
 		f.serveRecoveryAsset(w, r)
 	case isPlatformPath(r.URL.Path):
-		// **The switch, and the whole of what a client has to know about it:
-		// nothing.** A client calls the one address it always calls. While the
-		// Platform is serving this proxies; while it is not, the Supervisor
-		// answers the same two services with its own state (supervisor#7), and
-		// stops the moment the Platform is back.
+		// The switch, and what a client has to know about it: nothing. A client
+		// calls the one address it always calls. While the Platform is serving
+		// this proxies; while it is not, the Supervisor answers the same two
+		// services with its own state (supervisor#7), and stops the moment the
+		// Platform is back.
 		//
 		// Only the client surface. Artwork and playback are bytes the
 		// Supervisor does not have and must not pretend to — they keep the
-		// proxy and its `unavailable`, which is the honest answer for a byte stream
-		// that cannot be served.
+		// proxy and its "unavailable", which is the honest answer for a byte
+		// stream that cannot be served.
 		if isClientSurfacePath(r.URL.Path) && !f.platformServing() {
 			f.absent.ServeHTTP(w, r)
 			return
@@ -265,9 +260,9 @@ func (f *FrontDoor) serveHealth(w http.ResponseWriter, r *http.Request) {
 
 // platformUnavailable answers when the Platform is not reachable.
 //
-// It returns a status the *Shell* can interpret rather than a page, because
-// the Shell is still loaded and already renders the offline state — that state
-// is platform#21's stated exception and it is the richest available presentation
+// It returns a status the Shell can interpret rather than a page, because the
+// Shell is still loaded and already renders the offline state — that state is
+// platform#21's stated exception and it is the richest available presentation
 // layer in supervisor#2's ladder. Replacing a working client-side screen with a
 // server-rendered error page would degrade further than the situation calls
 // for.
@@ -312,16 +307,16 @@ func (f *FrontDoor) shellUnavailable(w http.ResponseWriter, r *http.Request, err
 // recoveryPage is the embedded renderer (supervisor#2's third rung), served in
 // place of the Shell when there is no Shell.
 //
-// **It is a page, not a message.** What it replaced was a static "Mosaic is
-// starting" with a Try again link — accurate, and unable to say anything that
-// changed, so a first boot downloading two binaries and a box that would never
-// come up looked identical for as long as somebody was prepared to wait. This
-// fetches /supervisor/ui and draws it, which is the same tree a native client
+// It is a page, not a message. It fetches the rendered fragment from
+// supervisorUIFragmentPath and re-fetches it on a signal from
+// supervisorUIEventsPath, so it keeps saying what changed — a first boot
+// downloading two binaries and a box that will never come up must not look
+// identical to somebody waiting. What it draws is the same tree a native client
 // renders in its own skin.
 //
-// **No framework and no build step**, deliberately: it draws when there is no
-// Shell, so every dependency it had would be one more thing that must work on
-// the worst day this install has.
+// No framework and no build step, deliberately: it draws when there is no Shell,
+// so every dependency it had would be one more thing that must work on the worst
+// day this install has.
 //
 //go:embed recoveryui/index.html
 var recoveryPage string

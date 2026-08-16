@@ -151,9 +151,10 @@ func TestActivationRestartsTheChildOntoTheNewGeneration(t *testing.T) {
 	}
 }
 
-// **The load-bearing test.** A Generation that starts but does not serve is
-// reverted, the pointer is left alone, and what the failing child said is kept
-// — because the revert is what would otherwise destroy it.
+// TestAFailedActivationRevertsAndKeepsTheEvidence is the load-bearing test. A
+// Generation that starts but does not serve is reverted, the pointer is left
+// alone, and what the failing child said is kept — because the revert is what
+// would otherwise destroy it.
 func TestAFailedActivationRevertsAndKeepsTheEvidence(t *testing.T) {
 	a := newActivation(t)
 	a.serving.Store(false) // the listener a client reaches is gone

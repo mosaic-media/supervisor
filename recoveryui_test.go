@@ -16,16 +16,15 @@ import (
 
 // The embedded renderer is measured against the emitter, not trusted.
 //
-// This is the web client's `check-vocabulary.mjs` at a hundredth of the size
-// and for the same reason: a renderer that has drifted from what it is sent
-// looks exactly like one that has not, and on this surface the consequence is a
-// missing sentence in the one state with nothing else to read.
+// A renderer that has drifted from what it is sent looks exactly like one that
+// has not, and on this surface the consequence is a missing sentence in the one
+// state with nothing else to read.
 
 // rendererKeys is the set of primitives RecoveryFragment actually draws,
 // discovered by rendering one and seeing what comes out.
 //
-// **By behaviour rather than by reading the source**, which is what makes it a
-// guard: a `case` that exists and falls through to the default branch is a
+// It measures behaviour rather than reading the source, which is what makes it a
+// guard: a case that exists and falls through to the default branch is a
 // primitive the renderer does not implement, and a source scan would count it.
 func rendererKeys(t *testing.T) map[string]bool {
 	t.Helper()
@@ -64,8 +63,9 @@ func emitted(t *testing.T) map[string]bool {
 	return types
 }
 
-// **The load-bearing guard.** Growing the emitter without growing the renderer
-// must fail here rather than on somebody's screen during a first boot.
+// TestTheEmbeddedRendererCoversEveryPrimitiveTheEmitterUses is the load-bearing
+// guard: growing the emitter without growing the renderer must fail here rather
+// than on somebody's screen during a first boot.
 func TestTheEmbeddedRendererCoversEveryPrimitiveTheEmitterUses(t *testing.T) {
 	implemented := rendererKeys(t)
 	var missing []string
@@ -83,8 +83,8 @@ func TestTheEmbeddedRendererCoversEveryPrimitiveTheEmitterUses(t *testing.T) {
 
 // The reverse direction is a statement rather than an error: the renderer may
 // implement a primitive the emitter does not use yet, and that is fine. What is
-// not fine is it implementing something the *contract* does not have, which is
-// a typo that will never render.
+// not fine is it implementing something the contract does not have, which is a
+// typo that will never render.
 func TestTheEmbeddedRendererImplementsOnlyRealPrimitives(t *testing.T) {
 	known := map[string]bool{}
 	for _, p := range sdui.Primitives {
@@ -134,7 +134,7 @@ func TestTheEmbeddedRendererFetchesNothingButItsOwnOrigin(t *testing.T) {
 func TestTheEmbeddedRendererStaysSmall(t *testing.T) {
 	// The page itself, and everything it pulls from the binary. htmx and its
 	// SSE extension are most of it, and the budget is set where it is so that
-	// adding a *second* library is a decision rather than a slide.
+	// adding a second library is a decision rather than a slide.
 	total := len(recoveryPage)
 	for _, name := range []string{"htmx.min.js", "sse.js"} {
 		b, err := recoveryAssets.ReadFile("recoveryui/vendor/" + name)
@@ -155,13 +155,12 @@ func TestTheEmbeddedRendererStaysSmall(t *testing.T) {
 // the phase as data rather than string-matching the sentences — which would
 // make the wording load-bearing.
 //
-// **Both halves of the coupling, because only one of them used to be checked.**
-// The first version listened for `sse:ready` on the window and asserted that
-// string was in the page. It was, and the event does not exist: htmx's SSE
-// extension exposes a named event as an `hx-trigger`, not as a DOM event. The
-// test passed and a first boot sat on "Mosaic is running" forever, because the
-// one thing neither half checked was whether the *server* emitted anything the
-// page could read.
+// It pins both halves of the coupling: the page reads the phase, and the server
+// puts it in the fragment. Checking only the page is not enough — asserting that
+// a string appears in it proves nothing about whether the server emits anything
+// the page can read, and htmx's SSE extension exposes a named event as an
+// hx-trigger rather than as a DOM event, so a listener for one can be present
+// and never fire.
 func TestTheEmbeddedRendererHandsBackWhenReady(t *testing.T) {
 	if !strings.Contains(recoveryPage, "location.reload()") {
 		t.Error("the page never gets out of the way once the Shell is serving")
@@ -183,15 +182,15 @@ func TestTheEmbeddedRendererHandsBackWhenReady(t *testing.T) {
 	}
 }
 
-// **Polling is the floor beneath the stream, and a meta refresh is the floor
-// beneath that.** SSE is the thing most likely to be silently broken — a proxy
+// Polling is the floor beneath the stream, and a meta refresh is the floor
+// beneath that. SSE is the thing most likely to be silently broken — a proxy
 // that buffers turns a live page into a dead one with no error — so the page
 // must not depend on it, and with scripting off it must still keep up.
 func TestTheRecoveryPageHasAFloorBeneathTheStream(t *testing.T) {
 	if !strings.Contains(recoveryPage, "every 5s") {
 		t.Error("no polling trigger — a blocked SSE stream would freeze the page")
 	}
-	// **The stream drives and the poll is the floor**, rather than both running:
+	// The stream drives and the poll is the floor, rather than both running:
 	// polling while SSE works is a wasted request and a visible one, since an
 	// innerHTML swap restarts the spinner's animation.
 	if !strings.Contains(recoveryPage, `trigger("sse:state")`) {
@@ -213,16 +212,15 @@ func TestTheRecoveryPageHasAFloorBeneathTheStream(t *testing.T) {
 	}
 }
 
-// **Every glyph the emitter names, this renderer has.** The half of the
-// icon-name coupling that lives in this repository, and the only half that can
-// be checked at all: `iconName` is open text in the spec — the glyph set is a
-// client asset, not data — so there is no published set to measure an emitter
-// against, and naming one a client does not ship draws an empty svg silently.
+// TestEveryIconTheEmitterNamesHasAGlyph pins that every glyph the emitter names,
+// this renderer has. It is the half of the icon-name coupling that lives in this
+// repository, and the only half that can be checked at all: iconName is open
+// text in the spec — the glyph set is a client asset, not data — so there is no
+// published set to measure an emitter against, and naming a glyph a client does
+// not ship draws an empty svg silently.
 //
-// That is not hypothetical. This emitter named "alert" for its whole life; the
-// web client ships "warning" and has never had "alert", and it took rendering
-// the tree in the Shell to find out. What a *client* ships stays unguarded,
-// and is a gap on the roadmap rather than a test that could exist here.
+// What a client ships stays unguarded, and is a gap on the roadmap rather than a
+// test that could exist here.
 func TestEveryIconTheEmitterNamesHasAGlyph(t *testing.T) {
 	for _, state := range everyState() {
 		walk(RecoveryScreen(state), func(n sdui.Node) {

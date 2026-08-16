@@ -14,26 +14,25 @@ import (
 
 // Activating a Generation, and reverting as the same path's failure branch.
 //
-// **The revert is not a second feature.** Home Assistant's update installs,
-// starts, health-checks and — on failure — puts the previous version back and
-// starts that: one path, with the revert as its `else`. Written as two
+// The revert is not a second feature. It is this path's else branch, the same
+// shape Home Assistant's update takes: install, start, health-check, and on
+// failure put the previous version back and start that. Written as two
 // operations they drift, and the one that runs least is the one that has to
 // work.
 //
-// Two orderings carry most of the correctness here.
+// Two orderings are load-bearing.
 //
-// **The pointer is written last, after every child is serving.** A Supervisor
-// that dies mid-activation then starts the *old* Generation on its next boot,
-// because the pointer still names it — the failure falls backwards. Writing the
-// pointer first would have a crash leave an install committed to a Generation
-// nobody proved.
+// The pointer is written last, after every child is serving. A Supervisor that
+// dies mid-activation then starts the old Generation on its next boot, because
+// the pointer still names it — the failure falls backwards. Writing the pointer
+// first would have a crash leave an install committed to a Generation nobody
+// proved.
 //
-// **The health check is the Serving probe, not the child's own opinion.** A
-// Platform can report every subsystem loaded while the listener a client
-// arrives at is unbound, and the state this waits on requires whichever probes
-// a child declares — so for the Platform and the Shell it is a request to the
-// socket a user reaches. Gating a revert on a self-report is how a broken
-// upgrade stays.
+// The health check is the Serving probe, not the child's own opinion. A Platform
+// can report every subsystem loaded while the listener a client arrives at is
+// unbound, and the state this waits on requires whichever probes a child
+// declares — so for the Platform and the Shell it is a request to the socket a
+// user reaches. Gating a revert on a self-report is how a broken upgrade stays.
 
 // ErrActivationFailed wraps whatever went wrong, so a caller can tell an
 // activation that reverted from one that never started.
@@ -80,13 +79,13 @@ type Activator struct {
 	// process is in a position to answer it.
 	Tel *Telemetry
 	// Activity is where the switch reports itself for the screen somebody is
-	// watching. This is the phase a person is most likely to *be* watching:
+	// watching. This is the phase a person is most likely to be watching:
 	// their Mosaic went away and they want to know whether it is coming back.
 	Activity *Activity
 	// Spool is where a failed activation is recorded for the Platform to adopt
-	// (platform#74). **This is the case that document was written for**: an
-	// install that silently undoes its own upgrade and says so only in a log
-	// produces a bug report three days after the evidence rotated away.
+	// (platform#74). An install that silently undoes its own upgrade and says so
+	// only in a log produces a bug report three days after the evidence rotated
+	// away.
 	Spool *Spool
 }
 
@@ -151,9 +150,9 @@ func (a *Activator) Activate(ctx context.Context, version string) (err error) {
 		return err
 	}
 	// The children already started under this Generation carry the id they were
-	// given; what this fixes is the *next* start — a restart, a crash, a
-	// shutdown and boot — so a Platform never reports a Generation it is not
-	// running (platform#77).
+	// given; what this fixes is the next start — a restart, a crash, a shutdown
+	// and boot — so a Platform never reports a Generation it is not running
+	// (platform#77).
 	a.Manager.SetGenerationID(version)
 	a.Tel.Info(componentGeneration, "is live",
 		String("version", version), String("from", from),
@@ -171,7 +170,7 @@ func (a *Activator) switchTo(ctx context.Context, dir, version string) error {
 		// up is not knowable in advance — the Platform may be running
 		// migrations — so a bar that guessed at seconds would be wrong in the
 		// one direction that matters, and a person watching an upgrade wants to
-		// know it is *progressing* rather than how many seconds are left.
+		// know it is progressing rather than how many seconds are left.
 		a.Activity.Report(PhaseUpgrading, version,
 			fmt.Sprintf("restarting %s (%d of %d)", t.Child, i+1, len(targets)),
 			float64(i)/float64(len(targets)))
@@ -195,7 +194,7 @@ func (a *Activator) switchTo(ctx context.Context, dir, version string) error {
 
 // revert puts the previous commands back and keeps the evidence.
 //
-// **The evidence is written before anything is restarted.** The old Generation
+// The evidence is written before anything is restarted. The old Generation
 // starts cleanly and says so, and on a console that is the same stream — so a
 // revert that restarted first would bury the reason underneath the recovery.
 //
@@ -244,7 +243,7 @@ func (a *Activator) Rollback(ctx context.Context) (version string, err error) {
 	}
 	// The pointer moves first here, unlike an activation, and for the same
 	// reason the pointer moves last there: falling backwards is safe. If this
-	// dies halfway, the next boot starts the version being rolled back *to*,
+	// dies halfway, the next boot starts the version being rolled back to,
 	// which is where the operator was heading.
 	if version, err = a.Generations.Rollback(); err != nil {
 		return "", err

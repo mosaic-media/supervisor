@@ -60,7 +60,7 @@ func snapshotOf(m *Manager, name string) ChildSnapshot {
 
 // A freshly started child has not restarted. The number is one an operator
 // judges stability by, and "1 restart" on a healthy boot reads as a crash that
-// never happened — which is exactly what this reported before it was fixed.
+// never happened.
 func TestAFirstStartIsNotARestart(t *testing.T) {
 	m := NewManager("boot-1", nil)
 	if err := m.Add(ChildSpec{Name: "sleeper", Command: []string{"sleep", "30"}}); err != nil {
@@ -478,10 +478,10 @@ func TestBecomingReadyClearsTheFailureRun(t *testing.T) {
 	}
 }
 
-// A child that starts and dies immediately must still reach its ceiling. It
-// did not: readiness arrives at once for a child with no probe, and clearing
-// the failure run on that alone let every attempt forgive the one before it,
-// so the count never rose and the condition was unreportable forever.
+// A child that starts and dies immediately must still reach its ceiling.
+// Readiness arrives at once for a child with no probe, so clearing the failure
+// run on readiness alone would let every attempt forgive the one before it: the
+// count would never rise and the condition would be unreportable forever.
 func TestAChildThatDiesImmediatelyCannotForgiveItself(t *testing.T) {
 	m := NewManager("boot-1", nil)
 	if err := m.Add(ChildSpec{
@@ -579,10 +579,9 @@ func TestAChildNeedsANameAndCannotBeRegisteredTwice(t *testing.T) {
 // The Generation id reaches the child too, and it is what settles an upgrade
 // request (platform#77): a Platform compares the version it was asked to be
 // against the one it is, because the process that would have acknowledged the
-// upgrade has just been replaced by it.
-//
-// It was read by the Platform's telemetry resource and written by nobody for
-// the whole life of that field, which is the quiet half of this test.
+// upgrade has just been replaced by it. Nothing on the reading side reports an
+// id that was never written, which is why this asserts it reaches the child's
+// environment rather than only that it was set.
 func TestTheGenerationIDReachesTheChildsEnvironment(t *testing.T) {
 	out := t.TempDir() + "/env"
 	m := NewManager("boot-1", nil)

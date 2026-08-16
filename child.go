@@ -58,12 +58,11 @@ type ChildSnapshot struct {
 
 // The two children this Supervisor knows by name.
 //
-// **Named because the front door branches on one of them.** Whether the
+// They are named because the front door branches on one of them. Whether the
 // Supervisor answers the Platform's client surface itself turns on the Platform
 // child being ready (supervisor#7), and writing that check against a string literal
 // far from the registration that produced it would mean a rename switched the
-// takeover off with nothing failing anywhere — the exact shape of silent
-// breakage this repository keeps finding.
+// takeover off with nothing failing anywhere.
 const (
 	PlatformChildName = "platform"
 	ShellChildName    = "shell"
@@ -73,22 +72,18 @@ const (
 type ChildSpec struct {
 	// Name is the reporting name — PlatformChildName or ShellChildName.
 	Name string
-	// Command is argv. Empty means there is nothing to run *yet*, which is two
+	// Command is argv. Empty means there is nothing to run yet, which is two
 	// opposite situations — see Managed.
 	Command []string
 	// Managed says the Supervisor owns this process's lifecycle.
 	//
-	// **It exists because an empty Command means two opposite things**, and
-	// inferring from emptiness alone made one of them impossible. A dev stack
-	// or a DIY deployment supplies no command because something else runs the
-	// process; a first boot supplies none because the binary has not been
-	// downloaded yet. Both are `Command == nil`, and only the second may be
-	// given one later.
-	//
-	// Inferring it cost a first boot that fetched and verified a Generation
-	// perfectly and then refused to start it, reporting that "the Supervisor
-	// does not own its lifecycle" — about the child it had just been told to
-	// provision. Nothing failed; the install simply sat at "starting" forever.
+	// It exists because an empty Command means two opposite things and cannot be
+	// told apart from emptiness alone. A dev stack or a DIY deployment supplies
+	// no command because something else runs the process; a first boot supplies
+	// none because the binary has not been downloaded yet. Both are
+	// Command == nil, and only the second may be given one later — inferring
+	// instead leaves a provisioned install refusing to start the child it was
+	// just told to provision, with nothing failing anywhere.
 	Managed bool
 	// Env is added to the Supervisor's own environment.
 	Env []string
@@ -96,13 +91,13 @@ type ChildSpec struct {
 	// 2xx/3xx. Nil means "running is ready", which is weaker but honest for a
 	// process with no probe.
 	Readiness *Probe
-	// Serving is the surface a *client* reaches, and is checked because a
+	// Serving is the surface a client reaches, and is checked because a
 	// process's opinion of itself is not the question a Supervisor is asking.
 	// A component can report every subsystem loaded while the listener a user
 	// arrives at is unbound or unrouted, and only a probe of that listener
 	// tells them apart.
 	//
-	// It is satisfied by **any** HTTP response, not a 2xx. The surface worth
+	// It is satisfied by any HTTP response, not only a 2xx. The surface worth
 	// probing is the RPC path clients actually use, which correctly refuses a
 	// GET — so demanding success would mean issuing a real RPC, and the one
 	// call reachable before authentication is rate-limited and does real work
@@ -255,10 +250,10 @@ func (m *Manager) Add(spec ChildSpec) error {
 	return nil
 }
 
-// Run supervises every registered child until ctx is cancelled, then stops
-// them **in registration order** and returns. It blocks.
+// Run supervises every registered child until ctx is cancelled, then stops them
+// in registration order and returns. It blocks.
 //
-// The order is the point, and it is deliberately *not* the conventional
+// The order is the point, and it is deliberately not the conventional
 // stop-dependents-first. That rule exists to drain traffic through the
 // dependent before the thing it depends on goes away, and it does not apply
 // here: clients reach the Platform through the front door directly, never
@@ -405,7 +400,7 @@ func (m *Manager) superviseOne(ctx context.Context, name string) {
 		// A child that died while an operation owned it stays down until that
 		// operation lets go. The failure above is still recorded first, so the
 		// health probe reports what happened rather than a pid that no longer
-		// exists — the hold delays the *restart*, not the accounting.
+		// exists — the hold delays the restart, not the accounting.
 		m.waitWhileHeld(ctx, name)
 	}
 }
@@ -455,9 +450,9 @@ func (m *Manager) runOnce(ctx context.Context, name string, spec ChildSpec) erro
 
 	// Stop the child when the Supervisor is asked to stop.
 	//
-	// `done` is buffered and carries the exit error; `exited` is closed
-	// alongside it purely as a broadcast, so stop can wait for the process
-	// without consuming the value runOnce still needs to return.
+	// done is buffered and carries the exit error; exited is closed alongside
+	// it purely as a broadcast, so stop can wait for the process without
+	// consuming the value runOnce still needs to return.
 	done := make(chan error, 1)
 	exited := make(chan struct{})
 	go func() {
@@ -498,10 +493,10 @@ func (m *Manager) runOnce(ctx context.Context, name string, spec ChildSpec) erro
 // chance to finish it; a Platform that ignores SIGTERM must not be able to
 // block an activation forever.
 //
-// The signal goes to the process *group* (the negative pid), which is why
-// runOnce sets Setpgid: a child that spawned its own children — an extension
-// module's process, an ffmpeg — would otherwise leave them orphaned and still
-// holding the port the replacement is about to want.
+// The signal goes to the process group (the negative pid), which is why runOnce
+// sets Setpgid: a child that spawned its own children — an extension module's
+// process, an ffmpeg — would otherwise leave them orphaned and still holding the
+// port the replacement is about to want.
 func (m *Manager) stop(cmd *exec.Cmd, grace time.Duration, exited <-chan struct{}) {
 	if cmd.Process == nil {
 		return
@@ -532,7 +527,7 @@ func (m *Manager) pollReadiness(ctx context.Context, name string) {
 	for {
 		if m.ready(ctx, spec) {
 			m.setState(name, ChildReady)
-			// Ready *and* up for long enough is what lets a child stop being
+			// Ready and up for long enough is what lets a child stop being
 			// reported as one that will not come up. Readiness alone is not
 			// evidence: a child with no probe is ready the instant it starts,
 			// so clearing on that would let one that dies a second later
@@ -603,17 +598,17 @@ func (m *Manager) specOf(name string) ChildSpec {
 
 // setState moves a child and records the move when it is one.
 //
-// **The transition is the fact, not the state**, which is why this is not a
-// plain setter: readiness is polled every couple of seconds, so recording the
-// answer would be a line every tick and recording nothing would make a child
-// that flaps ready → starting → ready completely invisible. Only the edges are
-// written, and they are what a crash loop or a flapping probe looks like in a
-// file somebody reads afterwards.
+// The transition is the fact, not the state, which is why this is not a plain
+// setter: readiness is polled every couple of seconds, so recording the answer
+// would be a line every tick and recording nothing would make a child that flaps
+// ready to starting to ready completely invisible. Only the edges are written,
+// and they are what a crash loop or a flapping probe looks like in a file
+// somebody reads afterwards.
 //
-// For the Platform child this edge is also the **handover**: the front door
-// answers the client surface itself while the Platform is not ready and steps
-// out of the way when it is (supervisor#7), and it reads the same state this sets.
-// There is deliberately no second record saying so — one fact, one statement.
+// For the Platform child this edge is also the handover: the front door answers
+// the client surface itself while the Platform is not ready and steps out of the
+// way when it is (supervisor#7), and it reads the same state this sets. There is
+// deliberately no second record saying so.
 func (m *Manager) setState(name string, state ChildState) {
 	m.mu.Lock()
 	c, ok := m.children[name]
@@ -634,9 +629,9 @@ func (m *Manager) setState(name string, state ChildState) {
 // recordFailure marks a child failed and returns whether this failure is the
 // one that crossed its ceiling — so the caller can say so exactly once.
 //
-// `healthy` reports that the child had stayed up long enough to count before
-// it died, which clears the run of failures: a process that crashes once an
-// hour is not the same condition as one that has never started.
+// healthy reports that the child had stayed up long enough to count before it
+// died, which clears the run of failures: a process that crashes once an hour is
+// not the same condition as one that has never started.
 func (m *Manager) recordFailure(name string, err error, healthy bool, ceiling int) (crossed bool) {
 	if ceiling <= 0 {
 		ceiling = defaultMaxConsecutiveFailures
@@ -664,9 +659,9 @@ func (m *Manager) recordFailure(name string, err error, healthy bool, ceiling in
 	return false
 }
 
-// clearFailuresIfSettled forgives a child's run of failures once it has been
-// up for `settled`, which is what makes "unrecoverable" a condition a child
-// can leave rather than a verdict it carries until the Supervisor restarts.
+// clearFailuresIfSettled forgives a child's run of failures once it has been up
+// for settled, which is what makes "unrecoverable" a condition a child can leave
+// rather than a verdict it carries until the Supervisor restarts.
 func (m *Manager) clearFailuresIfSettled(name string, settled time.Duration) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -763,10 +758,10 @@ func errText(err error) string {
 
 // exitCodeOf reports what a child exited with, for the record (supervisor#5).
 //
-// Three outcomes and they are genuinely different: `0` is a process that exited
+// Three outcomes and they are genuinely different: 0 is a process that exited
 // cleanly when it was not supposed to exit at all — the shape a Platform with a
 // missing DSN has, which is why it is worth distinguishing rather than folding
-// into "it died". A positive code is the process's own verdict. `-1` is either a
+// into "it died". A positive code is the process's own verdict. -1 is either a
 // signal or a start that never happened, and Go reports both the same way, so
 // the error text beside this is what tells them apart.
 func exitCodeOf(err error) int {

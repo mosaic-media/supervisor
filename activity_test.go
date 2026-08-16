@@ -10,14 +10,14 @@ import (
 	"testing"
 )
 
-// The progress bar was implemented on three renderers and fed by nothing, so
-// the tests worth having are about what reaches the screen — not about the
-// arithmetic, which is the part that was never the problem.
+// These tests are about what reaches the screen rather than about the progress
+// arithmetic, because a bar implemented on three renderers and fed by nothing
+// still passes every test of its arithmetic.
 
-// **What is being done on purpose beats what can be observed.** During an
-// upgrade the children are down, so the health inference would call it
-// degraded — true, and the wrong thing to tell somebody: "not coming up" and
-// "coming back in a moment" are the two states this screen exists to separate.
+// What is being done on purpose beats what can be observed. During an upgrade
+// the children are down, so the health inference would call it degraded — true,
+// and the wrong thing to tell somebody: "not coming up" and "coming back in a
+// moment" are the two states this screen exists to separate.
 func TestAnUpgradeIsNotReportedAsDegraded(t *testing.T) {
 	activity := &Activity{}
 	front := frontDoor(t, "http://127.0.0.1:1", "http://127.0.0.1:1", func() Health {
@@ -56,9 +56,9 @@ func TestAnUpgradeIsNotReportedAsDegraded(t *testing.T) {
 	}
 }
 
-// **A bar is actually drawn now, in every renderer.** This is the end of the
-// chain the gap was in: something reports, the emitter branches on a measurable
-// progress, and the renderers draw it.
+// TestAReportedFetchDrawsAProgressBar pins the whole chain: something reports,
+// the emitter branches on a measurable progress, and the renderer draws a bar.
+// An unmeasurable phase must draw none.
 func TestAReportedFetchDrawsAProgressBar(t *testing.T) {
 	activity := &Activity{}
 	front := frontDoor(t, "http://127.0.0.1:1", "http://127.0.0.1:1", func() Health { return Health{} })

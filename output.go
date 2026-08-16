@@ -18,12 +18,11 @@ const maxBufferedLine = 64 << 10
 
 // prefixWriter attributes a child's console output to the child.
 //
-// Three processes write to one terminal, and without this their lines
-// interleave with nothing to say which said what — the Platform, the Shell and
-// the Supervisor all logging at once, indistinguishable. It is safe precisely
-// because this is the *console* stream: the Platform's structured records go to
-// its file sink (supervisor#5), and its console sink already emits human-readable
-// text, so a prefix corrupts no machine-read format.
+// The Platform, the Shell and the Supervisor all write to one terminal, and
+// without this their lines interleave with nothing to say which said what. It is
+// safe precisely because this is the console stream: the Platform's structured
+// records go to its file sink (supervisor#5), and its console sink already emits
+// human-readable text, so a prefix corrupts no machine-read format.
 //
 // Writes are line-buffered and the whole line is emitted under one lock, so a
 // line never interleaves with another child's mid-way.

@@ -16,11 +16,10 @@ import (
 //	/supervisor/ui/fragment  HTML — the Supervisor's screen, rendered
 //	/supervisor/ui/events    SSE  — a ping when that rendering changes
 //
-// **These serve the recovery page and nothing else.** A client with its own
-// renderer does not come here at all: it calls the Platform's routes, and while
-// the Platform is not serving the Supervisor answers them itself (supervisor#7).
-// There was a `/supervisor/ui` here answering the tree as JSON for exactly that
-// audience, and removing it is the point rather than a tidy-up — an endpoint a
+// These serve the recovery page and nothing else. A client with its own renderer
+// does not come here at all: it calls the Platform's routes, and while the
+// Platform is not serving the Supervisor answers them itself (supervisor#7).
+// Do not add a route serving the tree as JSON for that audience — an endpoint a
 // client has to know to ask is a rule every client has to implement.
 //
 // Everything still comes from RecoveryScreen, so the page, a native client and
@@ -32,9 +31,9 @@ var recoveryAssets embed.FS
 // serveUIFragment answers with the rendered HTML htmx swaps in, wrapped in an
 // element carrying the phase as data.
 //
-// **The phase has to travel with the fragment**, because the page has to know
-// when to get out of the way and the only alternative is reading the prose —
-// which would make the wording load-bearing and untranslatable. It rides a data
+// The phase has to travel with the fragment, because the page has to know when
+// to get out of the way and the only alternative is reading the prose — which
+// would make the wording load-bearing and untranslatable. It rides a data
 // attribute rather than a header so it survives the swap and can be read from
 // the DOM afterwards, on whichever rung delivered it.
 func (f *FrontDoor) serveUIFragment(w http.ResponseWriter, r *http.Request) {
@@ -44,13 +43,13 @@ func (f *FrontDoor) serveUIFragment(w http.ResponseWriter, r *http.Request) {
 	writeNoStore(w, r, "text/html; charset=utf-8", []byte(body))
 }
 
-// serveUIEvents pushes a `state` event whenever the rendered fragment changes,
-// and a `ready` event once Mosaic is serving.
+// serveUIEvents pushes a "state" event whenever the rendered fragment changes,
+// and a "ready" event once Mosaic is serving.
 //
-// **The stream carries a signal, not the content.** htmx re-fetches the
-// fragment on the event, so all three rungs of the page — stream, poll, meta
-// refresh — share one content path. A stream carrying HTML would be a second
-// way for the content to arrive and a second thing to get wrong.
+// The stream carries a signal, not the content. htmx re-fetches the fragment on
+// the event, so all three rungs of the page — stream, poll, meta refresh — share
+// one content path. A stream carrying HTML would be a second way for the content
+// to arrive and a second thing to get wrong.
 //
 // It compares the rendered output rather than watching for changes, which is
 // the cheap and honest way round: the Supervisor's state has no change
@@ -150,28 +149,27 @@ func writeNoStore(w http.ResponseWriter, r *http.Request, contentType string, bo
 
 // recoveryHTML is the page with its initial content rendered in.
 //
-// **Server-rendered first paint, which is also the no-script floor.** The whole
-// content of this page is a state, so an empty box waiting for a fetch would be
-// the wrong first frame — and with scripting off it is the only frame, kept
-// current by the meta refresh rather than by htmx.
+// The first paint is server-rendered, which is also the no-script floor. The
+// whole content of this page is a state, so an empty box waiting for a fetch
+// would be the wrong first frame — and with scripting off it is the only frame,
+// kept current by the meta refresh rather than by htmx.
 func (f *FrontDoor) recoveryHTML() string {
 	return strings.Replace(recoveryPage, "{{fragment}}", RecoveryFragment(f.recoveryState()), 1)
 }
 
 // recoveryState turns what the front door knows into what the emitter draws.
 //
-// **Two sources, and the deliberate one wins.** An operation the Supervisor is
-// performing on itself — fetching a Generation, switching onto one — is
+// There are two sources and the deliberate one wins. An operation the Supervisor
+// is performing on itself — fetching a Generation, switching onto one — is
 // reported by whichever component is doing it, because only that component
 // knows. Everything else is inferred from the health report the front door
 // already holds: children that are not serving are starting, a child past its
 // restart ceiling is degraded.
 //
-// The order matters. During an upgrade the children *are* down, so the
+// The order matters. During an upgrade the children really are down, so the
 // inference would call it degraded — technically true and the wrong thing to
 // tell somebody, because "not coming up" and "coming back in a moment" are the
-// two states this screen exists to separate. What is being done on purpose is
-// therefore preferred over what can be observed.
+// two states this screen exists to separate.
 func (f *FrontDoor) recoveryState() RecoveryState {
 	state := RecoveryState{
 		Phase:    PhaseStarting,

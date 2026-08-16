@@ -44,13 +44,12 @@ const (
 	// Set to say something else runs this child and the Supervisor only fronts
 	// and reports on it.
 	//
-	// **It is opt-out rather than inferred, and that was a defect.** Ownership
-	// used to be worked out from "no command and nowhere to fetch one", which
-	// reads as "not mine" — and in the supervised image, where there is no
-	// something-else in the container at all, it meant a Supervisor sat at
-	// "Starting" forever without ever saying it had nowhere to fetch from. The
-	// ambiguous case now defaults to the honest reading: this is mine, and I
-	// have nothing to run.
+	// It is opt-out rather than inferred. Working ownership out from "no
+	// command and nowhere to fetch one" reads as "not mine", and in the
+	// supervised image — where there is no something-else in the container at
+	// all — that leaves a Supervisor sitting at "Starting" forever without ever
+	// saying it had nowhere to fetch from. The ambiguous case defaults to the
+	// honest reading: this is mine, and I have nothing to run.
 	platformExternalEnv = "MOSAIC_SUPERVISOR_PLATFORM_EXTERNAL"
 	shellExternalEnv    = "MOSAIC_SUPERVISOR_SHELL_EXTERNAL"
 )
@@ -67,7 +66,7 @@ const (
 
 // platformServingPath is the client-facing path probed to prove the API
 // listener is bound and routing. It names a real Connect method because the
-// point is to exercise the mux a client uses, and the same `/mosaic.` prefix
+// point is to exercise the mux a client uses, under the same /mosaic. prefix
 // the front door routes on.
 const platformServingPath = "/mosaic.auth.v1.AuthService/Bootstrap"
 
@@ -92,12 +91,12 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// **Everything this process says goes to a file as well as the console**
+	// Everything this process says goes to a file as well as the console
 	// (supervisor#5). It is the process that survives the failures worth
 	// diagnosing — a Platform that will not start, a Generation that dies on
-	// activation — and until now it said all of that to stdout and nowhere
-	// else, so on a box where nobody is watching the console it said it to no
-	// one. Opened first, so the failures below are in it.
+	// activation — and on a box where nobody is watching the console, the file
+	// is the only place it is said. Opened first, so the failures below are in
+	// it.
 	tel := supervisor.OpenTelemetry(cfg, os.Stderr)
 	defer tel.Close()
 	if path := tel.Path(); path != "" {
@@ -210,7 +209,7 @@ func run() error {
 	}
 
 	// Run owns the children until ctx is cancelled and then stops them in
-	// order. The shutdown path below **waits for this to finish** — without
+	// order. The shutdown path below must wait for this to finish — without
 	// that wait the process would exit the moment the front door closed,
 	// leaving every child to be killed by whatever is above the Supervisor
 	// instead of stopped by it, which is precisely the job it exists to do.
@@ -268,10 +267,10 @@ func run() error {
 		errs <- nil
 	}()
 
-	// **Provisioning happens after the door is open, and that ordering is the
-	// whole reason the recovery page exists.** A first boot fetches two
-	// binaries over whatever connection the box has; somebody who opens the URL
-	// during those minutes must see the install happening rather than a refused
+	// Provisioning happens after the door is open, and that ordering is the
+	// whole reason the recovery page exists. A first boot fetches two binaries
+	// over whatever connection the box has; somebody who opens the URL during
+	// those minutes must see the install happening rather than a refused
 	// connection. Doing this before serving would make the one screen written
 	// for this moment unreachable in it.
 	//
@@ -280,19 +279,19 @@ func run() error {
 	// exiting would replace an explanation with a closed port.
 	if err := provisioner.EnsureGeneration(ctx); err != nil {
 		tel.Error("", err.Error())
-		// **And on the screen, because a log is not a surface an install in
-		// this state has.** Nothing is serving and nothing is going to, so the
+		// And on the screen, because a log is not a surface an install in this
+		// state has. Nothing is serving and nothing is going to, so the
 		// recovery page is the only thing anybody can reach — and left to the
-		// health inference it would say "Starting" forever, which is the one
-		// answer that is both true and useless. Reported and never cleared: the
-		// situation does not resolve on its own.
+		// health inference it would say "Starting" forever, which is both true
+		// and useless. Reported and never cleared: the situation does not
+		// resolve on its own.
 		activity.Report(supervisor.PhaseDegraded, "", err.Error(), -1)
 	}
 
-	// **The upgrade loop starts after provisioning, not before.** A first boot
-	// is already fetching a Generation; a second fetcher asking the same
-	// catalogue while it does would be two downloads and one confusing screen.
-	// By here there is either a Generation or a recorded reason there is not.
+	// The upgrade loop starts after provisioning, not before. A first boot is
+	// already fetching a Generation; a second fetcher asking the same catalogue
+	// while it does would be two downloads and one confusing screen. By here
+	// there is either a Generation or a recorded reason there is not.
 	go (&supervisor.UpgradeWatch{
 		Updater: provisioner.Update(),
 		Handoff: cfg.PlatformHandoff,
@@ -309,9 +308,9 @@ func run() error {
 	tel.Info("", "shutting down")
 
 	// The children go first, in registration order — the Platform, then the
-	// Shell — and **the front door stays open while they do**. That ordering
-	// is only worth anything if something is still answering to show it:
-	// closing the front door first would make every rung of supervisor#2's ladder
+	// Shell — and the front door stays open while they do. That ordering is
+	// only worth anything if something is still answering to show it: closing
+	// the front door first would make every rung of supervisor#2's ladder
 	// invisible, since a client would get a refused connection either way.
 	//
 	// So a shutdown walks the ladder down rather than falling off it. The
@@ -341,12 +340,11 @@ const frontDoorDrain = 10 * time.Second
 
 // childCommand decides what a child runs.
 //
-// **The environment wins over the Generation**, which is the right way round
-// for the two cases that set it: a development stack pointing at binaries it
-// built, and a deployment managing its own processes (supervisor#6's DIY path).
-// Both are deliberate acts by somebody who knows what they want run, and
-// neither should be quietly overridden by a Generation that happens to be on
-// disk.
+// The environment wins over the Generation, which is the right way round for the
+// two cases that set it: a development stack pointing at binaries it built, and
+// a deployment managing its own processes (supervisor#6's DIY path). Both are
+// deliberate acts by somebody who knows what they want run, and neither should
+// be quietly overridden by a Generation that happens to be on disk.
 //
 // Empty from both is a child the Supervisor fronts but does not own, which is
 // also how a first boot starts: there is nothing to run until a Generation

@@ -20,14 +20,14 @@ import (
 // what the Supervisor actually holds is a directory of verified binaries and a
 // version naming them. It builds nothing; it selects.
 //
-// **The layout is deliberately boring**, because this is the state that has to
-// be readable by a person at 2am when the thing that reads it will not start:
+// The layout is deliberately boring, because this is the state that has to be
+// readable by a person at 2am when the thing that reads it will not start:
 //
 //	<root>/generations/<version>/          the binaries
 //	<root>/generations/<version>/.complete  written last, after everything verified
 //	<root>/generations.json                 {"active": "...", "previous": "..."}
 //
-// **`.complete` is the load-bearing file.** A download interrupted halfway
+// The .complete marker is the load-bearing file. A download interrupted halfway
 // leaves a directory of plausible-looking binaries, and the only difference
 // between that and a good Generation is whether every artefact verified. The
 // marker is written after the last one does, and [Generations.Activate] refuses
@@ -66,7 +66,7 @@ type Generations struct {
 // 0700 throughout: these are executables the Supervisor will run as itself, so
 // anything that can write here can choose what runs. That is the same reasoning
 // as the runtime directory's permissions and it matters more, because a socket
-// is reachable and a binary is *executed*.
+// is reachable and a binary is executed.
 func OpenGenerations(root string) (*Generations, error) {
 	if strings.TrimSpace(root) == "" {
 		return nil, errors.New("supervisor: the generations root is required")
@@ -94,9 +94,9 @@ func (g *Generations) Dir(version string) string {
 // Stage prepares an empty directory for a version being downloaded, discarding
 // anything already there under that name.
 //
-// **Discarding is the right default and the surprising one.** A re-staged
-// version is a retry, and a retry that merged into a previous attempt's leavings
-// would produce a directory whose contents came from two downloads — each file
+// Discarding is the right default and the surprising one. A re-staged version is
+// a retry, and a retry that merged into a previous attempt's leavings would
+// produce a directory whose contents came from two downloads — each file
 // individually verified, and the set never checked as a whole. Starting empty
 // costs a re-download and removes that.
 func (g *Generations) Stage(version string) (dir string, err error) {
@@ -113,9 +113,9 @@ func (g *Generations) Stage(version string) (dir string, err error) {
 	return dir, nil
 }
 
-// Commit marks a staged version complete. Called once every artefact has been
-// downloaded *and verified*, and never before — the marker is the only thing
-// that distinguishes a finished Generation from an interrupted one.
+// Commit marks a staged version complete. It must be called only once every
+// artefact has been downloaded and verified, never before — the marker is the
+// only thing that distinguishes a finished Generation from an interrupted one.
 func (g *Generations) Commit(version string) error {
 	if err := validVersion(version); err != nil {
 		return err
@@ -170,10 +170,10 @@ func (g *Generations) Activate(version string) error {
 
 // Rollback returns to the previous Generation and reports which one that is.
 //
-// **The two pointers swap rather than the previous one being dropped.** A
-// rollback that failed would otherwise have nowhere to go back to, and "the
-// upgrade broke and so did the rollback" is exactly when somebody needs the
-// option of the version they started from.
+// The two pointers swap rather than the previous one being dropped. A rollback
+// that failed would otherwise have nowhere to go back to, and "the upgrade broke
+// and so did the rollback" is exactly when somebody needs the option of the
+// version they started from.
 func (g *Generations) Rollback() (version string, err error) {
 	p := g.read()
 	if p.Previous == "" {
@@ -224,10 +224,10 @@ func (g *Generations) List() (versions []string, err error) {
 // read returns the pointer, treating every unreadable state as "nothing is
 // active".
 //
-// **That is deliberate and it is the safe direction.** A missing file is a
-// first boot; a corrupt one is a disk that lost a write. Both mean the
-// Supervisor cannot say what should be running, and answering "nothing" makes
-// it download rather than exec a path it guessed at.
+// That is deliberate and it is the safe direction. A missing file is a first
+// boot; a corrupt one is a disk that lost a write. Both mean the Supervisor
+// cannot say what should be running, and answering "nothing" makes it download
+// rather than exec a path it guessed at.
 func (g *Generations) read() pointer {
 	b, err := os.ReadFile(g.pointerPath())
 	if err != nil {
@@ -280,10 +280,10 @@ func (g *Generations) write(p pointer) error {
 // validVersion refuses anything that would escape the generations directory or
 // name something other than a version.
 //
-// A version reaches this from a release catalogue, which is remote input, and
-// it is used to build a path. `..` in it is a directory traversal that ends
-// with the Supervisor executing a file somebody else chose — so the check is
-// here rather than at each call site.
+// A version reaches this from a release catalogue, which is remote input, and it
+// is used to build a path. ".." in it is a directory traversal that ends with the
+// Supervisor executing a file somebody else chose, so the check is here rather
+// than at each call site.
 func validVersion(version string) error {
 	switch {
 	case strings.TrimSpace(version) == "":

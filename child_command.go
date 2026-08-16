@@ -11,7 +11,7 @@ import (
 
 // What an activation needs from the Manager, kept beside it rather than in
 // child.go: changing which binary a child runs and waiting for it to serve are
-// operations *on* the lifecycle rather than part of it.
+// operations on the lifecycle rather than part of it.
 
 // CommandOf returns a child's current argv.
 //
@@ -39,8 +39,8 @@ func (m *Manager) CommandOf(name string) ([]string, error) {
 
 // SetCommand replaces the argv a child will be started with next.
 //
-// **It does not restart anything.** The running process keeps running until
-// something stops it, and `superviseOne` re-reads the spec at the top of every
+// It does not restart anything. The running process keeps running until
+// something stops it, and superviseOne re-reads the spec at the top of every
 // iteration, so the new command takes effect on the next start and not before.
 // That is what lets an activation set the command and then restart, rather than
 // racing a change against a process that is already coming back.
@@ -74,12 +74,12 @@ func (m *Manager) Order() []string {
 
 // WaitReady blocks until a child is serving, or until the timeout.
 //
-// **What it waits on is the state the probes decide**, which for the Platform
-// and the Shell means a request to the socket a client actually reaches — not
-// the child's opinion of itself. That is the whole reason an activation can
-// gate on it: a component reporting every subsystem loaded while its listener
-// is unbound is precisely the failure a self-report cannot see, and precisely
-// the one that must trigger a revert.
+// What it waits on is the state the probes decide, which for the Platform and
+// the Shell means a request to the socket a client actually reaches — not the
+// child's opinion of itself. That is the whole reason an activation can gate on
+// it: a component reporting every subsystem loaded while its listener is unbound
+// is precisely the failure a self-report cannot see, and precisely the one that
+// must trigger a revert.
 //
 // A child with no probes reports ready as soon as it is running, which is the
 // strongest claim available for it and is stated on ChildSpec.Readiness. An
@@ -139,12 +139,10 @@ func (m *Manager) snapshotOf(name string) ChildSnapshot {
 // AwaitingCommand names the children the Supervisor owns and has nothing to run
 // for — a first boot before its Generation has arrived.
 //
-// **It is the difference between "nothing to provision" and "nothing can be
-// provisioned".** Without it the boot path reported a missing release catalogue
-// on every ordinary start of the dev stack, where both children were supplied
-// by the deployment and were running perfectly: an alarming line about a real
-// misconfiguration, printed at a moment when nothing was wrong, which is how a
-// log stops being read.
+// It is the difference between "nothing to provision" and "nothing can be
+// provisioned". The boot path needs it so that an install whose children were
+// both supplied by the deployment — and are running perfectly — is not told its
+// release catalogue is missing.
 func (m *Manager) AwaitingCommand() []string {
 	m.mu.Lock()
 	defer m.mu.Unlock()

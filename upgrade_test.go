@@ -68,7 +68,7 @@ func spoolIn(t *testing.T) (*Spool, func() []SpooledFinding) {
 func TestAnAvailableVersionIsSpooledAsAnOffer(t *testing.T) {
 	// Installed on v0.1.0 for real, then the catalogue grows a newer one. The
 	// first version has to be genuinely active: a fresh install with nothing
-	// active considers *everything* an upgrade, which would let this pass
+	// active considers everything an upgrade, which would let this pass
 	// without checking the comparison it exists to check.
 	h := newReleaseHost(t, "v0.1.0")
 	updater, _, _ := h.updater(t)

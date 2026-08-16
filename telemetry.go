@@ -25,28 +25,26 @@ import (
 
 // The Supervisor's own telemetry (supervisor#5), on OpenTelemetry (sdk#8).
 //
-// **There is a whole class of failure where the process that would normally
-// report is the process that is broken** — a migration that will not run, a
-// database that is not there, a Generation that starts and immediately dies —
-// and the Supervisor is the process that survives all of it *and* the one that
-// caused the transition. This is where it writes that down.
+// There is a whole class of failure where the process that would normally report
+// is the process that is broken — a migration that will not run, a database that
+// is not there, a Generation that starts and immediately dies — and the
+// Supervisor is the process that survives all of it and the one that caused the
+// transition. This is where it writes that down.
 //
-// **It was hand-written for one day.** The record format was duplicated from the
-// Platform's, with a test naming the JSON keys as the only thing holding two
-// binaries' serialisation in step, and supervisor#5 had named that duplication as an
-// open question. sdk#8 answered it: the shared vocabulary is OpenTelemetry's,
-// which neither process owns, and the file is now ordinary OTLP JSON that any
-// collector reads.
+// The record format is OpenTelemetry's, which neither process owns (sdk#8), so
+// the file is ordinary OTLP JSON that any collector reads. There is no
+// Mosaic-authored format here to keep in step with the Platform's.
 //
-// **The OTel SDK is here and OTLP is not, and that distinction is the whole of
-// supervisor#5's objection honoured.** That record rejected "ships the OTel SDK and
-// exports over OTLP" because an exporter needs a running collector — the same
-// aliveness assumption, relocated. A *file* exporter needs nothing. Nothing here
-// dials, resolves or waits on anything, which is the property that matters for
-// the component whose job is to still work.
+// The file exporter is the unconditional one, and it needs nothing running.
+// supervisor#5 rejected exporting over OTLP because an exporter needs a live
+// collector — the same aliveness assumption, relocated — so the collector is an
+// operator's opt-in extra beside the file and never a replacement for it, its
+// exporter is batched so an export never sits on the goroutine that recorded a
+// child's exit, and failing to build it warns rather than refusing to boot.
+// Nothing here may block startup on something answering.
 //
-// **Nothing here is fatal and nothing here blocks.** A Supervisor that failed to
-// start a child, and then failed to start *because* it could not write down that
+// Nothing here is fatal and nothing here blocks. A Supervisor that failed to
+// start a child, and then failed to start because it could not write down that
 // it had failed to start a child, would be the machinery defeating the thing it
 // is for. A nil *Telemetry discards.
 
@@ -59,15 +57,15 @@ const serviceName = "mosaic-supervisor"
 // what stitches three processes' records into one timeline.
 //
 // A Mosaic-namespaced key because OpenTelemetry has no convention for it: a boot
-// is not `service.instance.id` (that names a process, and three processes share
+// is not service.instance.id (that names a process, and three processes share
 // one boot) and not a trace id (a boot is not a request).
 const bootAttribute = "mosaic.boot.id"
 
 // The components a record can be attributed to.
 //
-// One list rather than a literal at each call site, because `component` is the
-// key somebody filters on: a spelling invented where it was written is a filter
-// that matches nothing and reports no error for it.
+// One list rather than a literal at each call site, because component is the key
+// somebody filters on: a spelling invented where it was written is a filter that
+// matches nothing and reports no error for it.
 const (
 	componentChild      = "child"
 	componentGeneration = "generation"
@@ -79,12 +77,12 @@ const componentAttribute = "component"
 
 // telemetryDirName and telemetryFileName place the log beside the Platform's.
 //
-// The Platform writes `logs/mosaic-platform.log` relative to its working
-// directory, and in the shipped image that directory *is* the state directory —
-// so the two land side by side and collecting both is a directory read rather
-// than a search. The state directory rather than the working directory because
-// this one must survive a reboot: a record written during a boot that then
-// failed is exactly the one worth keeping.
+// The Platform writes logs/mosaic-platform.log relative to its working
+// directory, and in the shipped image that directory is the state directory, so
+// the two land side by side and collecting both is a directory read rather than
+// a search. The state directory rather than the working directory because this
+// one must survive a reboot: a record written during a boot that then failed is
+// exactly the one worth keeping.
 const (
 	telemetryDirName  = "logs"
 	telemetryFileName = "mosaic-supervisor.log"
@@ -164,12 +162,12 @@ func ParseLevel(s string) Level {
 // redaction is the Platform's classification vocabulary (platform#34), reduced to
 // what the Supervisor can actually produce.
 //
-// **The zero value is `unclassified`, and that is the whole design.** A Field
-// built as a struct literal rather than through a constructor has not been
-// classified by anybody, so it is redacted on the way out — a field somebody
-// forgot to think about is dropped, not leaked. OpenTelemetry has no notion of
-// classification, so the conversion to an attribute is the last place the rule
-// can be applied and it is applied to every field on every path.
+// The zero value is unclassified, and that is the whole design. A Field built as
+// a struct literal rather than through a constructor has not been classified by
+// anybody, so it is redacted on the way out — a field somebody forgot to think
+// about is dropped, not leaked. OpenTelemetry has no notion of classification,
+// so the conversion to an attribute is the last place the rule can be applied,
+// and Field.attribute applies it to every field on every path.
 //
 // There is no Identifier class here, and its absence is deliberate rather than
 // pending. Identifier exists to answer "is this the same subject as before"
@@ -298,11 +296,11 @@ type Telemetry struct {
 // OpenTelemetry prepares the Supervisor's telemetry against cfg, narrating to
 // console.
 //
-// **It cannot fail.** A state directory that cannot be written is a degraded log
-// and not a reason to refuse to boot — the console still carries everything, and
-// the failure to open is itself the first thing said on it. An empty state
-// directory is console-only by design: that is what a test gets, and what a
-// Supervisor with nowhere durable to write gets.
+// It cannot fail. A state directory that cannot be written is a degraded log and
+// not a reason to refuse to boot — the console still carries everything, and the
+// failure to open is itself the first thing said on it. An empty state directory
+// is console-only by design: that is what a test gets, and what a Supervisor
+// with nowhere durable to write gets.
 func OpenTelemetry(cfg Config, console io.Writer) *Telemetry {
 	t := &Telemetry{min: cfg.LogLevel, clock: time.Now}
 
@@ -339,10 +337,10 @@ func OpenTelemetry(cfg Config, console io.Writer) *Telemetry {
 		}
 	}
 
-	// **Additive, and never a replacement for the file.** A collector that is
-	// down, unreachable or misconfigured must cost records in the collector and
-	// none on disk — an install whose observability backend went away must not
-	// also lose the local account of why its Platform will not start.
+	// Additive, and never a replacement for the file. A collector that is down,
+	// unreachable or misconfigured must cost records in the collector and none
+	// on disk — an install whose observability backend went away must not also
+	// lose the local account of why its Platform will not start.
 	//
 	// Batched rather than simple, unlike the two local exporters: this one is
 	// over a network, so an export must not sit on the goroutine that recorded a
@@ -419,9 +417,8 @@ func (t *Telemetry) Path() string {
 // Printf narrates at info level with no component and no fields.
 //
 // It exists because most of what the Supervisor says is a sentence rather than a
-// fact with a shape, and because it matches the `func(string, ...any)` the whole
-// package already passes around — so nothing the Supervisor already said had to
-// be dropped on the floor to get the structured records.
+// fact with a shape, and because it matches the func(string, ...any) the whole
+// package already passes around.
 func (t *Telemetry) Printf(format string, args ...any) {
 	t.Event(LevelInfo, "", fmt.Sprintf(format, args...))
 }
@@ -467,13 +464,13 @@ func (t *Telemetry) Event(level Level, component, message string, fields ...Fiel
 // otlpLogsURL resolves what an operator configured into the URL the exporter
 // wants.
 //
-// **A base URL, like `OTEL_EXPORTER_OTLP_ENDPOINT`**, because that is the one
-// people know: an operator writes `http://collector:4318` and the signal path is
-// appended. Passed straight through, the exporter would POST to `/` and a
+// It takes a base URL, like OTEL_EXPORTER_OTLP_ENDPOINT, because that is the one
+// people know: an operator writes http://collector:4318 and the signal path is
+// appended. Passed straight through, the exporter would POST to "/" and a
 // collector would answer 404 — a misconfiguration that looks exactly like the
 // collector being wrong rather than the URL being incomplete. A URL that already
 // carries a path is left alone, so somebody fronting a collector at
-// `/otlp/v1/logs` is not overruled.
+// /otlp/v1/logs is not overruled.
 func otlpLogsURL(endpoint string) string {
 	parsed, err := url.Parse(endpoint)
 	if err != nil || parsed.Path != "" && parsed.Path != "/" {

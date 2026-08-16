@@ -131,7 +131,7 @@ func TestUpstreamsAreToldTheySitBehindTLS(t *testing.T) {
 
 // When the Platform is down the Shell is still loaded and already renders the
 // offline state, which is the richest available layer. The front door must
-// return something the *client* can interpret rather than replacing a working
+// return something the client can interpret rather than replacing a working
 // screen with a server-rendered error page.
 func TestPlatformDownAnswersTheClientNotThePage(t *testing.T) {
 	_, shell := upstreams(t)
@@ -169,9 +169,8 @@ func TestShellDownServesTheBootstrapPage(t *testing.T) {
 		t.Errorf("want the recovery page, got:\n%s", body)
 	}
 
-	// **It must still say what is happening with scripting off.** The page
-	// gained scripts when the recovery renderer landed, and this is the property
-	// that had to be earned back rather than relaxed.
+	// It must still say what is happening with scripting off, and that property
+	// is not to be relaxed as the page gains scripts.
 	//
 	// The state is server-rendered into the page body rather than into
 	// <noscript>, which is what makes it work: a browser with scripting off
@@ -277,8 +276,8 @@ func TestHealthPathIsNotProxied(t *testing.T) {
 	}
 }
 
-// **The Supervisor answers the Platform's own routes while the Platform is
-// down** (supervisor#7), so a client has one SDUI source and no rule for choosing
+// The Supervisor answers the Platform's own routes while the Platform is down
+// (supervisor#7), so a client has one SDUI source and no rule for choosing
 // between two.
 //
 // It is checked through a real Connect client against a real server rather than
@@ -310,9 +309,8 @@ func TestTheSupervisorAnswersThePlatformsRoutesWhenItIsDown(t *testing.T) {
 	}
 }
 
-// **And stops the moment the Platform is serving.** The switch is the front
-// door's alone; nothing on the client participates in it, which is the whole
-// reason this design replaced a client-side one.
+// And it stops the moment the Platform is serving. The switch is the front
+// door's alone; nothing on the client participates in it.
 func TestTheSupervisorStandsAsideWhenThePlatformIsServing(t *testing.T) {
 	platform, shell := upstreams(t)
 	front := frontDoor(t, platform.URL, shell.URL, func() Health {
@@ -325,9 +323,8 @@ func TestTheSupervisorStandsAsideWhenThePlatformIsServing(t *testing.T) {
 	}
 }
 
-// **The handover: the push lane ends when the Platform is back**, and the
-// client's ordinary reconnect does the rest. Nothing polls and nobody is told
-// to refresh.
+// The handover: the push lane ends when the Platform is back, and the client's
+// ordinary reconnect does the rest. Nothing polls and nobody is told to refresh.
 func TestThePushLaneEndsWhenThePlatformReturns(t *testing.T) {
 	children := &atomic.Value{}
 	children.Store([]ChildSnapshot{{Name: PlatformChildName, State: ChildStarting}})

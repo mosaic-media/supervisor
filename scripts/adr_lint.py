@@ -50,12 +50,25 @@ REPOS = {
     "module-fanart-tv", "module-remote-playback", "module-tmdb",
 }
 
-# The old spelling, in every form the corpus actually uses. The separator is
-# bounded rather than single: prose wraps, and `ADR\n  0126` is one citation
-# split by a line break. A single-character class missed three of them through
-# the whole migration and reported zero. Bounded rather than `*` so it cannot
+# The old spelling, in every form the corpus actually uses.
+#
+# This pattern was widened three times, each time because it reported zero while
+# citations existed, and the first two widenings were the wrong shape: a bigger
+# character budget. Prose wraps (`ADR\n  0126`); a Go comment wraps onto its
+# marker (`ADR\n// 0075`); a block comment onto ` * `; and a comment inside a
+# deeply indented YAML `run:` block onto thirteen characters of newline, indent
+# and `# `. Every budget large enough for the next case was also large enough to
 # leap a blank line onto an unrelated numbered list.
-UNQUALIFIED = re.compile(r"\bADR[\s-]{0,6}(\d{1,4})\b")
+#
+# So match the *structure* instead: an optional single line-wrap, which may carry
+# any indentation and one comment marker, and only then the ordinary separator.
+# A blank line cannot pass it at any indent, and no budget needs choosing again.
+UNQUALIFIED = re.compile(
+    r"\bADR"                                    # the retired prefix
+    r"(?:[ \t]*\r?\n[ \t]*(?://+|\#+|\*)?)?"    # one wrap: indent, then an optional comment marker
+    r"[ \t\-]{0,8}"                             # the separator on the citation's own line
+    r"(\d{1,4})\b"
+)
 # The new one. The repository name is checked against REPOS, not the pattern,
 # so `issue#12` or a CSS id never reads as a citation.
 QUALIFIED = re.compile(r"\b([a-z][a-z0-9-]*)#(\d+)\b")

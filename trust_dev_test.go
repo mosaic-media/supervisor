@@ -40,11 +40,10 @@ func TestTheDevelopmentKeyIsRead(t *testing.T) {
 	}
 }
 
-// **A malformed development key is an error, never a silent fallback to
-// trusting nothing.** The whole point of setting it is to verify against it, so
-// failing to parse it must not quietly become "verify nothing" — which would
-// present as an unconfigured build and send somebody looking in the wrong
-// place.
+// A malformed development key is an error, never a silent fallback to trusting
+// nothing. The whole point of setting it is to verify against it, so failing to
+// parse it must not quietly become "verify nothing" — which would present as an
+// unconfigured build and send somebody looking in the wrong place.
 func TestAMalformedDevelopmentKeyFailsRatherThanFallingBack(t *testing.T) {
 	for _, bad := range []string{"not hex", "abcd", "zz"} {
 		t.Setenv(DevReleaseKeyEnv, bad)

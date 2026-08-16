@@ -12,7 +12,7 @@ import (
 
 // A shipped build has no release key yet, so it trusts nothing — and that is
 // the honest state rather than a failure: platform#76 decided the hierarchy and
-// the key has not been generated. What matters is that it fails *closed*, which
+// the key has not been generated. What matters is that it fails closed, which
 // the artefact tests assert at the point of use.
 func TestAShippedBuildTrustsNothingYet(t *testing.T) {
 	keys, development, err := TrustedKeys()
@@ -27,9 +27,9 @@ func TestAShippedBuildTrustsNothingYet(t *testing.T) {
 	}
 }
 
-// **The claim this test exists to make executable:** an untagged build reads no
-// environment at all, so the development override is absent rather than
-// switched off. Setting the variable must change nothing.
+// TestAnUntaggedBuildIgnoresTheDevelopmentKey makes the claim executable: an
+// untagged build reads no environment at all, so the development override is
+// absent rather than switched off. Setting the variable must change nothing.
 //
 // It is skipped in the tagged pass, where reading it is the point — the tagged
 // half has its own test.

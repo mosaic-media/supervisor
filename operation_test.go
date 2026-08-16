@@ -66,8 +66,9 @@ func TestRestartReturnsOnlyOnceTheReplacementIsRunning(t *testing.T) {
 	}
 }
 
-// **The guard.** While an operation owns a child, the watchdog must not bring
-// it back — otherwise the operation replacing it races the loop restoring it.
+// TestAHeldChildIsNotRestartedByTheWatchdog pins the guard: while an operation
+// owns a child, the watchdog must not bring it back — otherwise the operation
+// replacing it races the loop restoring it.
 func TestAHeldChildIsNotRestartedByTheWatchdog(t *testing.T) {
 	m, cancel := running(t, ChildSpec{
 		Name: "platform", Command: []string{"sleep", "30"}, StopGrace: time.Second,

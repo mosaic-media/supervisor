@@ -40,10 +40,9 @@ func provisioner(t *testing.T, cfg Config, children ...ChildSpec) *Provisioner {
 // awaiting is a child the Supervisor owns with nothing yet to run.
 func awaiting(name string) ChildSpec { return ChildSpec{Name: name, Managed: true} }
 
-// **An install with a Generation boots onto it and is left alone.** Fetching on
-// every boot would turn a restart into an upgrade — a machine that came back on
-// a different version because it was power-cycled, which is the behaviour
-// nobody asks for and everybody notices.
+// An install with a Generation boots onto it and is left alone. Fetching on
+// every boot would turn a restart into an upgrade, so a machine would come back
+// on a different version because it was power-cycled.
 func TestAnExistingGenerationIsNotReplacedOnBoot(t *testing.T) {
 	root := t.TempDir()
 	p := provisioner(t, Config{StateDir: root, ReleaseURL: ""})
@@ -84,11 +83,9 @@ func TestNothingOnDiskAndNoCatalogueIsAnError(t *testing.T) {
 	}
 }
 
-// **And says nothing when nothing needs one.** This is the ordinary shape of a
-// deployment that runs its own processes, and it is where the first version got
-// it wrong: it reported a missing release catalogue on every start of the dev
-// stack, where both children were supplied and running perfectly. An alarming
-// line printed when nothing is wrong is how a log stops being read.
+// And it says nothing when nothing needs one. A deployment that runs its own
+// processes must not be told its release catalogue is missing: an alarming line
+// printed when nothing is wrong is how a log stops being read.
 func TestAnUnusedCatalogueIsNotReportedAsMissing(t *testing.T) {
 	p := provisioner(t, Config{ReleaseURL: ""},
 		ChildSpec{Name: PlatformChildName, Command: []string{"/bin/true"}, Managed: true},
@@ -109,9 +106,9 @@ func TestAnExternallyManagedChildIsNotWaitingForABinary(t *testing.T) {
 	}
 }
 
-// **A build with no trusted key still starts.** This is the shipped state
-// today — no release key exists yet (platform#76) — and an install with binaries
-// on disk works fine without one. Refusing to construct would refuse to boot.
+// A build with no trusted key still starts. That is the shipped state today — no
+// release key exists yet (platform#76) — and an install with binaries on disk
+// works fine without one. Refusing to construct would refuse to boot.
 func TestABuildWithNoReleaseKeyStillStarts(t *testing.T) {
 	p := provisioner(t, Config{ReleaseURL: "https://example.invalid/releases"})
 	if p == nil {
@@ -123,9 +120,9 @@ func TestABuildWithNoReleaseKeyStillStarts(t *testing.T) {
 	}
 }
 
-// **The environment wins over the Generation.** Both cases that set it — a dev
-// stack pointing at binaries it built, and a deployment managing its own
-// processes — are deliberate acts by somebody who knows what they want run.
+// The environment wins over the Generation. Both cases that set it — a dev stack
+// pointing at binaries it built, and a deployment managing its own processes —
+// are deliberate acts by somebody who knows what they want run.
 func TestTheActiveGenerationSuppliesTheChildCommands(t *testing.T) {
 	root := t.TempDir()
 	p := provisioner(t, Config{StateDir: root})

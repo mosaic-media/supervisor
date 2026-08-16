@@ -14,13 +14,13 @@ import (
 // and the Shell, so it is the process that must decide whether the bytes it is
 // about to execute are Mosaic's.
 //
-// **This is a different key from the one the Platform holds**
-// ([platform#76](https://github.com/mosaic-media/platform/blob/main/docs/adr/0076-the-signing-key-hierarchy.md)).
-// The Platform embeds `mosaic-official` and verifies the extension-module index
-// with it — a key CI exercises on every module release, whose compromise serves
-// a malicious module into a separate process with controlled egress. This one
-// vouches for the Platform binary itself, whose compromise is bounded by
-// nothing, so it is signed with `mosaic-release` and the two do not meet.
+// This is a different key from the one the Platform holds
+// ([platform#76](https://github.com/mosaic-media/platform/blob/main/docs/adr/0076-the-signing-key-hierarchy.md)),
+// and the two must not meet. The Platform embeds mosaic-official and verifies
+// the extension-module index with it — a key CI exercises on every module
+// release, whose compromise serves a malicious module into a separate process
+// with controlled egress. This one vouches for the Platform binary itself,
+// whose compromise is bounded by nothing, so it is signed with mosaic-release.
 //
 // ed25519 throughout, matching the Platform: small keys, small signatures, in
 // the standard library, and no parameter choices to get wrong.
@@ -29,24 +29,24 @@ import (
 //
 // platform#76 decided the key hierarchy; generating the key is custody work that
 // has to happen off CI and off any agent's machine, so there is nothing to
-// embed. The variable is declared rather than the file faked because **an
-// absent key must fail closed and say so** — see [TrustedKeys]. When the key
-// exists this becomes a `//go:embed mosaic-release.pub` over 32 raw bytes and
-// nothing else here changes.
+// embed. The variable is declared rather than the file faked because an absent
+// key must fail closed and say so — see [TrustedKeys]. When the key exists this
+// becomes a `//go:embed mosaic-release.pub` over 32 raw bytes and nothing else
+// here changes.
 //
 // A development build supplies one from the environment instead; that is the
-// whole of `trust_dev.go`, and a shipped binary does not contain the code that
+// whole of trust_dev.go, and a shipped binary does not contain the code that
 // reads it.
 var releasePublicKey []byte
 
-// DevReleaseKeyEnv names the variable a *development build* reads to supply a
+// DevReleaseKeyEnv names the variable a development build reads to supply a
 // release-signing key (platform#55's pattern, applied to release artefacts rather
 // than to the module index).
 //
-// **This build ignores it unless it was built with the `mosaicdev` tag.** The
-// name is declared here — always compiled — so that statement has somewhere to
-// live and something to test; `devReleaseKey` is the only reader, and its
-// untagged half reads no environment at all.
+// This build ignores it unless it was built with the mosaicdev tag. The name is
+// declared here — always compiled — so that statement has something to test
+// against; devReleaseKey is the only reader, and its untagged half reads no
+// environment at all.
 const DevReleaseKeyEnv = "MOSAIC_DEV_RELEASE_KEY"
 
 // trustedKey is one key the Supervisor will accept a signature from, with the
@@ -62,8 +62,7 @@ type trustedKey struct {
 // than a convenience: platform#76 rotates by overlap — trust the new key beside
 // the old, release, switch signing, drop the old a release later — which is
 // only possible because [Keyring.Verify] tries every key rather than requiring
-// a signature to name one. The Platform's keyring has the same property and has
-// never used it; this one is written for it from the start.
+// a signature to name one.
 type Keyring struct {
 	keys []trustedKey
 }
@@ -113,11 +112,11 @@ func (k *Keyring) Verify(message, sig []byte) (keyID string, ok bool) {
 }
 
 // Fingerprint is a short, stable name for a key — the SHA-256 of its public
-// half, truncated. It exists for the boot log: "which key is this Supervisor
-// trusting" is the question a development override makes worth answering out
-// loud, and printing the key itself answers it in a form nobody can compare at
-// a glance. Identical in form to the Platform's Repository.KeyFingerprint, so
-// the two processes' logs name the same key the same way.
+// half, truncated. It exists for the boot log, where "which key is this
+// Supervisor trusting" is worth answering in a form somebody can compare at a
+// glance. Its form must stay identical to the Platform's
+// Repository.KeyFingerprint so the two processes' logs name the same key the
+// same way.
 func Fingerprint(pub ed25519.PublicKey) string {
 	if len(pub) == 0 {
 		return ""
@@ -129,11 +128,10 @@ func Fingerprint(pub ed25519.PublicKey) string {
 // TrustedKeys returns the keys this build will accept a release signature from,
 // and whether the set is a development one.
 //
-// **A build with no key returns an empty keyring rather than an error**, and
-// the refusal happens where a release is verified. That is deliberate: the
-// Supervisor's job is to be running when other things are not, so it must boot
-// and serve its front door on an install that cannot verify an upgrade. What it
-// must not do is *activate* one, and that is [VerifyArtefact]'s to refuse.
+// A build with no key returns an empty keyring rather than an error, and the
+// refusal happens where a release is verified. The Supervisor must boot and
+// serve its front door on an install that cannot verify an upgrade; what it
+// must not do is activate one, and that is [VerifyArtefact]'s to refuse.
 func TrustedKeys() (keys *Keyring, development bool, err error) {
 	keys = &Keyring{}
 

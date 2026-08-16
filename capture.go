@@ -5,18 +5,16 @@ package supervisor
 
 // Keeping the evidence of a failed activation.
 //
-// **A revert destroys the reason it was needed.** The new Generation's Platform
+// A revert destroys the reason it was needed. The new Generation's Platform
 // said something on its way down — a migration it would not run, a config it
 // would not parse — and then the Supervisor puts the old one back, which starts
-// cleanly and writes its own output over the top. Home Assistant copies the
-// previous log aside before reverting for exactly this reason, and it is the
-// detail worth copying outright: without it the only artefact of a failed
-// upgrade is "it rolled back", which is the one fact that needs no explaining.
+// cleanly and writes its own output over the top. Without a capture the only
+// artefact of a failed upgrade is "it rolled back". Home Assistant's supervisor
+// copies the previous log aside before reverting for the same reason.
 //
-// The capture is a **ring** rather than a growing buffer. A child that fails by
-// logging furiously is the ordinary case, and the last few hundred kilobytes
-// are where the reason is; keeping everything would let a failing child fill
-// memory in the process whose job is to stay up.
+// The capture is a ring rather than a growing buffer: the last few hundred
+// kilobytes are where the reason is, and keeping everything would let a failing
+// child fill memory in the process whose job is to stay up.
 
 // captureLimit is how much of a failing activation's console output is kept.
 // 256KiB is thousands of lines — far more than the tail anybody reads — and

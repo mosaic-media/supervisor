@@ -21,12 +21,10 @@ import (
 // The file is ordinary OpenTelemetry, and that is the whole of sdk#8 as it
 // applies here.
 //
-// **The test this replaced pinned a JSON key set**, because the record format
-// was hand-written and duplicated from the Platform's, and a key quietly renamed
-// on one side was the hazard nothing else would catch. There is no longer a
-// Mosaic-authored format to pin: the shape is OTLP's, both processes will read
-// it with the same tooling, and what is worth asserting instead is that the
-// facts a reader needs actually arrive in it.
+// There is no Mosaic-authored format to pin — the shape is OTLP's and both
+// processes read it with the same tooling — so what this asserts instead is that
+// the facts a reader needs actually arrive in it. Do not reintroduce a test that
+// pins a JSON key set; that only makes sense for a hand-written format.
 func TestTheFileIsOrdinaryOpenTelemetry(t *testing.T) {
 	tel, path := telemetryInDir(t)
 	tel.Info(componentChild, "started", String("child", "platform"), Int("pid", 41))

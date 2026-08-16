@@ -14,20 +14,18 @@ import (
 
 // The upgrade loop (platform#77).
 //
-// **The machinery to upgrade has worked for a while and nothing could ask it
-// to.** Fetch, verify, activate, gate on the surface a client actually reaches,
-// revert keeping the evidence — all reachable only from Go, so an install that
-// could upgrade itself safely had no way to be told to. This is the half that
-// makes it reachable, and it invents no channel to do it.
+// The machinery to upgrade — fetch, verify, activate, gate on the surface a
+// client actually reaches, revert keeping the evidence — is [Updater]'s. This is
+// the half that makes it reachable, and it invents no channel to do it.
 //
-// **The offer goes out on the spool and the request comes back on the handoff.**
+// The offer goes out on the spool and the request comes back on the handoff.
 // Both already exist and both already carry exactly this shape of message: the
 // spool is how the Supervisor tells the Platform what it learned (platform#74), and
 // the handoff is how the Supervisor asks the Platform what is owed — it already
 // reports a configuration escalation waiting for a process that can perform one.
 //
-// **Nothing here acknowledges anything.** A request names a version, and it is
-// satisfied when the Platform is *running* that version — which the Platform
+// Nothing here acknowledges anything. A request names a version, and it is
+// satisfied when the Platform is running that version — which the Platform
 // decides for itself from the Generation id it was started with. That is why the
 // channel stays one-directional: success is observable rather than reported, and
 // an acknowledgement written by a process an upgrade is about to replace would be
@@ -54,8 +52,8 @@ const UpgradeRequestPath = "/upgrade"
 
 // UpgradeRequest is what the handoff answers.
 //
-// **Flat, with no schema version**, like the spool at the other end and for the
-// same reason: it is written by one binary and read by another that may have
+// It is flat, with no schema version, like the spool at the other end and for
+// the same reason: it is written by one binary and read by another that may have
 // been upgraded independently, so the reader treats it as untrusted input and
 // ignores what it does not understand.
 type UpgradeRequest struct {
@@ -125,7 +123,7 @@ func (w *UpgradeWatch) Run(ctx context.Context) {
 
 // checkCatalogue asks what is available and records an offer.
 //
-// **An unreachable catalogue costs a check rather than an upgrade**, and it is
+// An unreachable catalogue costs a check rather than an upgrade, and it is
 // recorded at debug rather than warn: a household box with no internet for an
 // afternoon is the ordinary case, and a warning every six hours about it is how
 // a log stops being read.
@@ -160,9 +158,9 @@ func (w *UpgradeWatch) carryOutRequest(ctx context.Context) {
 		String("version", request.Version))
 
 	// UpgradeTo rather than Upgrade: the version is the one the person was
-	// offered, and its URL comes from the *signed catalogue* rather than from
-	// the request — so no request can point an install at bytes nobody signed
-	// for, however it arrived.
+	// offered, and its URL comes from the signed catalogue rather than from the
+	// request — so no request can point an install at bytes nobody signed for,
+	// however it arrived.
 	if err := w.Updater.UpgradeTo(ctx, request.Version); err != nil {
 		w.Tel.Error(componentGeneration, "the requested upgrade did not happen",
 			String("version", request.Version), Err(err))
@@ -175,7 +173,7 @@ func (w *UpgradeWatch) carryOutRequest(ctx context.Context) {
 	}
 	// Deliberately not reported as done. The Platform decides that for itself by
 	// comparing the Generation it is running against the one that was requested,
-	// which is a statement about what *is* rather than about what happened — and
+	// which is a statement about what is rather than about what happened — and
 	// the process that would have reported it has just been replaced.
 }
 

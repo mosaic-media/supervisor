@@ -4,12 +4,12 @@
 // Package supervisor is Mosaic's host-level process manager and single front
 // door (supervisor#1, supervisor#2).
 //
-// What it is responsible for has shrunk a long way from those records:
-// extension modules are the Platform's throughout (platform#49) and per-install
-// builds were deleted in favour of a CI-built binary (platform#38), so the Build
-// Pipeline, Module resolution and Generation *building* are not here and are
-// not coming. What is left is process lifecycle, the front door, and
-// activating an artefact somebody else built.
+// Its scope is narrower than those records describe. Extension modules are the
+// Platform's throughout (platform#49) and per-install builds were dropped in
+// favour of a CI-built binary (platform#38), so the Build Pipeline, Module
+// resolution and Generation building are not here and are not coming. What is
+// left is process lifecycle, the front door, and activating an artefact somebody
+// else built.
 package supervisor
 
 import (
@@ -90,7 +90,7 @@ type Config struct {
 	PlatformHandoff Endpoint
 	Shell           Endpoint
 	// BootID names one start of this process. The Supervisor is the process
-	// that *mints* it and hands it to its children (supervisor#5), so unlike the
+	// that mints it and hands it to its children (supervisor#5), so unlike the
 	// Platform and the Shell it adopts an inbound one only when something is
 	// supervising the Supervisor.
 	BootID string
@@ -100,14 +100,13 @@ type Config struct {
 	// ReleaseURL is the directory holding the signed release catalogue —
 	// index.json and index.json.sig.
 	//
-	// **There is no default, and that is a gap rather than a policy.** The
-	// module registry's URL is compiled into the Platform because there is one
-	// and it is published; the equivalent for Platform *releases* does not
-	// exist yet — a Generation needs binaries from two repositories, and
-	// nothing aggregates and signs them the way the registry does for modules.
-	// Inventing a URL here would be a plausible-looking constant pointing at
-	// nothing. Empty means an install boots on whatever it already has and says
-	// so, which is the honest behaviour until there is somewhere to point.
+	// There is no default, and that is a gap rather than a policy. The module
+	// registry's URL is compiled into the Platform because there is one and it
+	// is published; the equivalent for Platform releases does not exist yet — a
+	// Generation needs binaries from two repositories, and nothing aggregates
+	// and signs them the way the registry does for modules. Inventing a URL here
+	// would be a plausible-looking constant pointing at nothing. Empty means an
+	// install boots on whatever it already has and says so.
 	ReleaseURL string
 	// LogLevel is the floor for the Supervisor's own records (supervisor#5). Info
 	// by default, and an unrecognised name resolves to info rather than being
@@ -117,11 +116,11 @@ type Config struct {
 	// OTLPEndpoint is an OpenTelemetry collector to send records to, as well as
 	// the file — never instead of it (sdk#8).
 	//
-	// **Empty by default, and that is the decision rather than an omission.**
+	// Empty by default, and that is the decision rather than an omission.
 	// [supervisor#5](https://github.com/mosaic-media/supervisor/blob/main/docs/adr/0005-the-supervisor-observes-independently.md)
 	// refused an exporter that needs a running collector, because the Supervisor
-	// may assume nothing else is up — and that reasoning stands. What sdk#8
-	// changed is that OTLP became an *option an operator takes*, so an install
+	// may assume nothing else is up, and that reasoning stands. What sdk#8
+	// changed is that OTLP became an option an operator takes, so an install
 	// with a collector gets its lifecycle in the same place as everything else
 	// while an install without one is unaffected and unconfigured.
 	//
@@ -208,9 +207,9 @@ func (c Config) TLSConfigured() bool { return c.CertFile != "" && c.KeyFile != "
 // PrepareRuntimeDir creates the directory the children's sockets live in.
 //
 // The Supervisor owns it because it is the process that starts before the
-// others. `0700` is the access control platform#75 relies on: a socket's own mode
-// governs connecting to it, but a directory nobody else may traverse is what
-// stops another user on the box enumerating what is there.
+// others. Mode 0700 is the access control platform#75 relies on: a socket's own
+// mode governs connecting to it, but a directory nobody else may traverse is
+// what stops another user on the box enumerating what is there.
 func PrepareRuntimeDir(dir string) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("creating the runtime directory %s: %w", dir, err)

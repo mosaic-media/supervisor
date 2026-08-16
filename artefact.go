@@ -15,17 +15,17 @@ import (
 
 // Verifying a downloaded release artefact before it is executed.
 //
-// **What is signed is the checksums file, not each binary.** A release publishes
-// one `SHA256SUMS` covering every target and one detached signature over it, so
-// a Supervisor that downloaded one binary verifies a signature over a small text
+// What is signed is the checksums file, not each binary. A release publishes one
+// SHA256SUMS covering every target and one detached signature over it, so a
+// Supervisor that downloaded one binary verifies a signature over a small text
 // file and then a digest over the bytes it holds. That is the same shape the
 // module registry uses — sign the aggregate, let the digests inside authenticate
 // the parts (platform#40) — and it means adding a target costs no extra signature.
 //
-// **It is a separate step from downloading on purpose.** Verification takes
-// bytes already on disk, so it can be tested without a network and cannot be
-// accidentally skipped by a download path that returned early. The order it
-// enforces is the one that matters: nothing executes before this returns nil.
+// Verification is a separate step from downloading on purpose. It takes bytes
+// already on disk, so it can be tested without a network and cannot be
+// accidentally skipped by a download path that returned early. Nothing executes
+// before it returns nil.
 
 // ErrNoTrustedKey is the refusal when the build has no release key.
 //
@@ -45,10 +45,10 @@ var ErrUnsigned = errors.New("supervisor: the release checksums are not signed b
 // ErrNotInChecksums is the refusal when the artefact is not named in the signed
 // checksums.
 //
-// **This is the one that is easy to get wrong and matters most.** A file that is
-// not in the signed set is unsigned, however genuine the signature over the set
-// is — so an attacker who can add a file to a release directory must not be able
-// to have it executed by virtue of a valid signature over everything else.
+// This is the one that is easy to get wrong and matters most. A file that is not
+// in the signed set is unsigned, however genuine the signature over the set is —
+// so an attacker who can add a file to a release directory must not be able to
+// have it executed by virtue of a valid signature over everything else.
 var ErrNotInChecksums = errors.New("supervisor: the artefact is not named in the signed checksums, so it is unsigned")
 
 // ErrDigestMismatch is the refusal when the bytes on disk are not the bytes that

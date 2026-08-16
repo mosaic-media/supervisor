@@ -14,31 +14,27 @@ import (
 
 // The recovery UI's renderer: the same SDUI tree the Supervisor emits, as HTML.
 //
-// **There is one renderer, and it is this one.** The recovery UI is hypermedia
-// — the Supervisor renders, htmx swaps — so the browser holds no component
-// model and there is nothing to drift from. That is the whole reason this
-// replaced a hand-written JavaScript renderer: two implementations of one
-// component model is what this project has already paid for once, and the
-// version with a JS renderer plus a Go text extractor was two.
+// There is one renderer, and it is this one. The recovery UI is hypermedia —
+// the Supervisor renders, htmx swaps — so the browser holds no component model
+// and there is nothing to drift from. A second implementation of the component
+// model is what this project has already paid for once.
 //
-// **It is not a general SDUI renderer and must not become one.** It draws the
+// It is not a general SDUI renderer and must not become one. It draws the
 // primitives the Supervisor's own emitter produces (supervisor#6: primitives only),
-// which is four of them. A client that renders the whole vocabulary is the
-// Shell, and the rung above this one is the Shell drawing this same tree from
-// the JSON at /supervisor/ui. Growing this towards that would be building a
-// second Shell inside the process whose job is to not need one.
+// which is four of them. The client that renders the whole vocabulary is the
+// Shell, and growing this towards that would be building a second Shell inside
+// the process whose job is to not need one.
 
 // recoveryGlyphs is this renderer's icon set.
 //
-// The glyph set is a client asset (the spec says so, which is why `iconName` is
+// The glyph set is a client asset (the spec says so, which is why iconName is
 // open text), and this client has no vector set — so a name is drawn as a
 // character. "?" for an unknown one beats drawing nothing, which reads as a
 // broken page rather than as a missing glyph.
 //
-// **It is a package-level map so it can be checked against phaseIcon**, which
-// is the half of the icon-name coupling that is inside this repository and
-// therefore guardable. It went unguarded until the emitter and this map
-// disagreed about the degraded phase and only a third renderer noticed.
+// It is a package-level map so it can be checked against phaseIcon, which is the
+// half of the icon-name coupling that lives inside this repository and is
+// therefore guardable. Every name phaseIcon can return must have an entry here.
 var recoveryGlyphs = map[string]string{
 	"refresh": "&#8635;",
 	"warning": "!",
@@ -112,10 +108,10 @@ func renderChildren(b *strings.Builder, n sdui.Node) {
 // boxClasses and textClasses translate the style props the emitter sets into
 // the small class set the page's stylesheet carries.
 //
-// **A style key this does not know is dropped, not passed through.** Emitting
-// an unknown key as a class would silently produce dead CSS, which is the same
-// quiet failure as a prop nothing renders. Deterministic order, because the
-// output is compared byte-for-byte to decide whether to push an SSE event.
+// A style key this does not know is dropped, not passed through: emitting an
+// unknown key as a class would silently produce dead CSS, the same quiet failure
+// as a prop nothing renders. The order is deterministic because the output is
+// compared byte-for-byte to decide whether to push an SSE event.
 func boxClasses(props map[string]any) string {
 	style, _ := props["style"].(map[string]any)
 	var classes []string
@@ -152,7 +148,7 @@ func textClasses(props map[string]any) string {
 // RecoveryText is the screen's words, in order.
 //
 // It serves the no-script floor and anything else that needs what this surface
-// *says* without drawing it. It walks the same tree, so it cannot disagree with
+// says without drawing it. It walks the same tree, so it cannot disagree with
 // the renderer about what the Supervisor is saying.
 func RecoveryText(s RecoveryState) []string {
 	var out []string

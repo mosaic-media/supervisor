@@ -21,18 +21,16 @@ import (
 // fetches the Shell before the Platform precisely so somebody who opens the URL
 // early sees the install happening.
 //
-// **Primitives only, and no definitions** (supervisor#6). A definition is data the
-// *Platform* delivers on connect, and there is no Platform in the states this
+// Primitives only, and no definitions (supervisor#6). A definition is data the
+// Platform delivers on connect, and there is no Platform in the states this
 // describes — that is the whole reason these screens exist. Shipping a
 // definition library inside the Supervisor would put a second copy of the
 // composition set in the one binary that must not grow, and it would be a copy
 // nothing drift-guards. So: Box, Text, Icon, ProgressBar, Pressable, and
 // nothing that has to be looked up.
 //
-// **It says what is happening and what will happen next, never "please wait".**
-// The states here are the ones where a person has no other source of
-// information — the Platform cannot answer, so nothing else can tell them
-// whether this is a thirty-second install or a box that will never come up.
+// Every screen here says what is happening and what will happen next, and none
+// says "please wait" — see headline below for why.
 
 // Phase is what the Supervisor is doing, as a closed set.
 //
@@ -63,10 +61,10 @@ const (
 // RecoveryState is what the Supervisor knows about itself, flattened for the
 // emitter.
 //
-// A struct rather than the Manager itself, because the emitter must be
-// callable from a test without a process tree — and because what a screen shows
-// is a *view*, so the place that decides what is worth showing should be
-// separable from the place that draws it.
+// A struct rather than the Manager itself, because the emitter must be callable
+// from a test without a process tree, and because what a screen shows is a view:
+// the place that decides what is worth showing should be separable from the
+// place that draws it.
 type RecoveryState struct {
 	Phase Phase
 	// Version is the active Generation, empty on a first boot.
@@ -96,11 +94,10 @@ func RecoveryScreen(s RecoveryState) sdui.Node { return recoveryScreen(s).Build(
 
 func recoveryScreen(s RecoveryState) *ui.Element {
 	body := []ui.El{
-		// **A CSS length, not a size token.** `Icon.size` is `string|number` in
-		// the spec and reaches the element unchanged — there is no token scale
-		// behind it — so "lg" produced `width="lg"`, which a browser discards.
-		// It drew nothing, and nothing said so. Found by rendering this tree in
-		// the Shell, which is the whole argument for that rung existing.
+		// A CSS length, not a size token. Icon.size is string|number in the
+		// spec and reaches the element unchanged — there is no token scale
+		// behind it — so "lg" becomes width="lg", which a browser discards. It
+		// draws nothing and nothing reports it.
 		ui.Icon(ui.Name(phaseIcon(s.Phase)), ui.Prop("size", "2rem")),
 		heading("Mosaic"),
 		line(headline(s), "md", "text-muted"),
@@ -108,9 +105,9 @@ func recoveryScreen(s RecoveryState) *ui.Element {
 
 	if s.Progress >= 0 {
 		body = append(body, ui.ProgressBar(
-			// A number, not a string: ProgressBar's `value` is `number` in the
-			// spec while the field primitives' `value` is a string, so the
-			// typed ui.Value helper is the wrong one here. See the note in
+			// A number, not a string: ProgressBar's value is a number in the
+			// spec while the field primitives' value is a string, so the typed
+			// ui.Value helper is the wrong one here. See the note in
 			// recovery_test.go — it is a contract finding, not a local choice.
 			ui.Prop("value", clampProgress(s.Progress)),
 			ui.StatusTone(phaseTone(s.Phase)),
@@ -129,8 +126,8 @@ func recoveryScreen(s RecoveryState) *ui.Element {
 		body = append(body, line("boot "+s.BootID, "xs", "text-faint"))
 	}
 
-	// **The centring is in the payload rather than in a client.** This tree is
-	// the whole page wherever it is drawn — there is no app shell around it,
+	// The centring is in the payload rather than in a client. This tree is the
+	// whole page wherever it is drawn — there is no app shell around it,
 	// because the thing that emits one is what is missing — so it states that
 	// it fills the viewport and centres itself instead of each renderer
 	// carrying a stylesheet rule for it. The embedded renderer is the one
@@ -138,12 +135,12 @@ func recoveryScreen(s RecoveryState) *ui.Element {
 	// for and centres from the page's own body rule, which is the single place
 	// a rule is cheaper than a third of a style vocabulary.
 	//
-	// **Two boxes, because a box cannot centre itself.** The outer one fills
-	// the viewport and centres its child on both axes; the inner one is the
-	// column that column has a maximum width. Putting maxWidth on the outer box
-	// makes *it* 520 wide and leaves it against the left edge — which is what it
-	// did, and which the page's own `margin: 0 auto` hid until the Shell drew
-	// the same tree without one.
+	// Two boxes, because a box cannot centre itself. The outer one fills the
+	// viewport and centres its child on both axes; the inner one is the column,
+	// and the maximum width belongs on it. Putting maxWidth on the outer box
+	// makes that box 520 wide and leaves it against the left edge — which the
+	// embedded page's own `margin: 0 auto` would hide, while a client without
+	// one draws it wrong.
 	return ui.Box(
 		ui.Prop("style", map[string]any{
 			"direction": "column", "align": "center", "justify": "center",
@@ -160,14 +157,14 @@ func recoveryScreen(s RecoveryState) *ui.Element {
 
 // heading and line are the two shapes of text this surface uses.
 //
-// **They exist because the Text primitive's props have no typed helpers.**
-// `ui.spec.json` generates a helper for every prop a *definition* binds, and
-// `genui -lint` enforces that — but a primitive's own props are authored
-// directly, so `text` and `style` are set through the generic ui.Prop, which is
-// "a string that compiles whatever you spell". Two local constructors are the
-// smallest way to spell each of them once. The Platform reaches for the same
-// generic constructor at its own Text call sites, which is what makes this a
-// contract gap rather than a Supervisor one.
+// They exist because the Text primitive's props have no typed helpers.
+// ui.spec.json generates a helper for every prop a definition binds, and
+// genui -lint enforces that, but a primitive's own props are authored directly —
+// so text and style are set through the generic ui.Prop, which compiles whatever
+// you spell. Two local constructors are the smallest way to spell each of them
+// once. The Platform reaches for the same generic constructor at its own Text
+// call sites, which makes this a contract gap rather than a Supervisor one.
+//
 // Both centre their own text, for the same reason the root Box centres itself:
 // a column that centres its children centres each paragraph as a block and
 // leaves its lines ragged, and the fix belongs in the payload rather than in
@@ -245,15 +242,16 @@ func childrenLine(children []ChildSnapshot) string {
 	return strings.Join(parts, " · ")
 }
 
-// phaseIcon names a glyph, and **the name is the whole contract** — `iconName`
-// is open text in the spec, on the stated grounds that the glyph set is a
-// client asset rather than data. So there is nothing to check an emitter
-// against: name one a client does not ship and it draws an empty svg, silently.
-// This emitter named "alert" for its whole life, which the web client has never
-// had (it ships "warning"), and only rendering the tree in the Shell found it.
+// phaseIcon names a glyph, and the name is the whole contract: iconName is open
+// text in the spec, on the stated grounds that the glyph set is a client asset
+// rather than data. So there is nothing to check an emitter against — name a
+// glyph a client does not ship and it draws an empty svg, silently. Only names a
+// client is known to carry may be returned here; the web client ships "warning"
+// rather than "alert".
 //
-// recoveryGlyphs below is the local half of that coupling, and it is tested.
-// The other half — what a *client* ships — is a gap recorded in the roadmap.
+// recoveryGlyphs in recoveryhtml.go is the local half of that coupling, and it is
+// tested. The other half — what a client ships — is a gap recorded in the
+// roadmap.
 func phaseIcon(p Phase) string {
 	switch p {
 	case PhaseDegraded:

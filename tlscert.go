@@ -25,11 +25,11 @@ const selfSignedValidity = 90 * 24 * time.Hour
 // TLSCertificate resolves the certificate the front door serves.
 //
 // An operator-supplied pair is loaded and used. Otherwise a self-signed one is
-// generated *in memory* for this boot: nothing is written to disk, because a
+// generated in memory for this boot: nothing is written to disk, because a
 // generated key that persists is a key somebody has to be told about, back up
-// and rotate, and this one is not worth any of that. The cost is that clients
-// see a new certificate after a restart, which is the correct signal — it says
-// "this is not a real certificate" every time rather than once.
+// and rotate. The cost is that clients see a new certificate after a restart,
+// which is the correct signal — it says "this is not a real certificate" every
+// time rather than once.
 func TLSCertificate(cfg Config) (tls.Certificate, bool, error) {
 	if cfg.TLSConfigured() {
 		cert, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)

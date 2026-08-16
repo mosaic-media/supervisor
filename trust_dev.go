@@ -15,26 +15,23 @@ import (
 
 // The development release key (platform#55's mechanism, platform#76's key).
 //
-// **This file exists only in a `-tags mosaicdev` build.** A shipped Supervisor
-// does not contain the code below, so the mechanism is *absent* rather than
-// switched off — which is the reason the guard is a build tag and not a runtime
-// check. A runtime check is a branch an attacker can try to reach and a
-// reviewer has to reason about; an absent function is neither.
+// This file exists only in a -tags mosaicdev build. A shipped Supervisor does
+// not contain the code below, so the mechanism is absent rather than switched
+// off, which is why the guard is a build tag and not a runtime check.
 //
-// **Nothing is bypassed.** A development key verifies a development signature,
-// and every check the real path runs still runs: the signature over the
-// checksums, the artefact's presence in them, and its digest. A loop that
-// skipped verification would exercise a path production does not have, which is
-// the whole reason this shape was chosen over a "skip signature checks" flag.
+// Nothing is bypassed: a development key verifies a development signature, and
+// every check the real path runs still runs — the signature over the checksums,
+// the artefact's presence in them, and its digest. A loop that skipped
+// verification would exercise a path production does not have, so this must not
+// become a "skip signature checks" flag.
 
 // devReleaseKey reads a release key from the environment.
 //
-// Hex rather than base64, and the *public* half: it is what `modulesign genkey`
+// Hex rather than base64, and the public half: it is what modulesign genkey
 // writes beside the private one, so a development loop hands over the same
 // artefact the real key would produce rather than a second encoding to get
-// wrong. A malformed value is an error and never a silent fallback to trusting
-// nothing — the whole point of setting it is to verify against it, so failing
-// to parse it must not quietly become "verify against nothing".
+// wrong. A malformed value is an error and never a silent fallback — failing to
+// parse the key must not quietly become "verify against nothing".
 func devReleaseKey() (ed25519.PublicKey, bool, error) {
 	raw, set := os.LookupEnv(DevReleaseKeyEnv)
 	raw = strings.TrimSpace(raw)

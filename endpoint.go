@@ -19,8 +19,8 @@ import (
 // it goes into the Host header and the request line, and it is what a
 // connection pool keys on. A fixed placeholder is correct because the dialer
 // ignores it entirely — every connection for this endpoint goes to the same
-// socket path — and a *recognisable* placeholder is what stops it reading as a
-// hostname somebody failed to resolve when it turns up in an error message.
+// socket path — and a recognisable one stops it reading as a hostname somebody
+// failed to resolve when it turns up in an error message.
 const unixHost = "mosaic.socket.invalid"
 
 // Endpoint is a resolved upstream: how to reach it, and the URL to hand a
@@ -45,9 +45,9 @@ type Endpoint struct {
 //	unix:///run/mosaic/platform.sock   a Unix socket (the shipped shape)
 //	http://127.0.0.1:8081              TCP, for a split deployment or dev
 //
-// A `unix://` URL keeps the whole endpoint in one setting, so a deployment
-// says what it is in one place rather than in an address plus a mode flag that
-// can disagree with it.
+// A unix:// URL keeps the whole endpoint in one setting, so a deployment says
+// what it is in one place rather than in an address plus a mode flag that can
+// disagree with it.
 func ParseEndpoint(raw string) (Endpoint, error) {
 	raw = strings.TrimSpace(raw)
 	parsed, err := url.Parse(raw)

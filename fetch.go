@@ -19,25 +19,24 @@ import (
 
 // Downloading a release, and refusing to keep one that does not verify.
 //
-// The order is download → verify → complete, and the *shape* of it is what
-// matters: an artefact is written into a staged Generation, verified there, and
-// the Generation is marked complete only once every artefact has passed. A
-// failure anywhere discards the whole staging directory, so there is no state in
-// which some of a Generation is trusted.
+// The order is download, then verify, then complete: an artefact is written into
+// a staged Generation, verified there, and the Generation is marked complete only
+// once every artefact has passed. A failure anywhere discards the whole staging
+// directory, so there is no state in which some of a Generation is trusted.
 //
-// **The Supervisor is not the Platform and its egress rules are its own.** It
-// fetches from one place — a release host it was told about — over HTTPS only,
-// with no redirect to anything else, a size cap and a deadline. It has no
-// netguard, no proxy and no deny list, and it does not need them: it makes
-// exactly these requests and nothing feeds it a URL from a user.
+// The Supervisor is not the Platform and its egress rules are its own. It fetches
+// from one place — a release host it was told about — over HTTPS only, with no
+// redirect to anything else, a size cap and a deadline. It has no netguard, no
+// proxy and no deny list, and it does not need them: it makes exactly these
+// requests and nothing feeds it a URL from a user.
 
 // ErrInsecureRelease is the refusal when a release URL, or something it
 // redirects to, is not HTTPS.
 //
 // GitHub is an untrusted host (platform#50) and the signature is what protects the
 // bytes — but plain HTTP would let anything on the path see and change what is
-// fetched *before* the signature is checked, and a downgrade on a redirect is
-// the classic way that happens without anybody choosing it.
+// fetched before the signature is checked, and a downgrade on a redirect is the
+// classic way that happens without anybody choosing it.
 var ErrInsecureRelease = errors.New("supervisor: a release must be fetched over HTTPS")
 
 // ErrReleaseTooLarge is the refusal when a download exceeds its cap. The
@@ -101,7 +100,7 @@ type Fetcher struct {
 	// a test, or a path with no front door — and reporting into nothing is the
 	// correct behaviour there rather than a missing wire.
 	Activity *Activity
-	// Phase is what this fetch *is*, which the Fetcher cannot work out and its
+	// Phase is what this fetch is, which the Fetcher cannot work out and its
 	// caller can: bringing down the first Generation an install has ever had is
 	// provisioning, and replacing one is upgrading. They read differently to
 	// somebody watching — one is "setting up", the other is "this was working a
@@ -116,10 +115,10 @@ type Fetcher struct {
 // checksums, and completes the Generation only if all of them pass. It reports
 // which key vouched for the release.
 //
-// **A failure discards the whole staging directory.** Half a Generation is the
-// state that would be most dangerous to keep: its files are individually
-// genuine, so nothing about them looks wrong, and the only thing that would have
-// caught it is the completeness marker this refuses to write.
+// A failure discards the whole staging directory. Half a Generation is the state
+// that would be most dangerous to keep: its files are individually genuine, so
+// nothing about them looks wrong, and the only thing that would catch it is the
+// completeness marker this refuses to write.
 func (f *Fetcher) Fetch(ctx context.Context, rel Release) (keyID string, err error) {
 	if f.Generations == nil {
 		return "", errors.New("supervisor: a fetcher needs somewhere to stage a generation")
@@ -248,11 +247,12 @@ func (f *Fetcher) get(ctx context.Context, base, name string, limit int64) ([]by
 
 // open issues the request and returns the body, refusing anything that is not a
 // 200 over HTTPS.
-// The reported size is the server's Content-Length, or zero when it does not
-// give one. **It is a claim, and it is only ever used to draw a bar** — the
-// size limit is enforced on the way through, on the bytes themselves, precisely
-// because this header cannot be trusted. The worst a lie does here is draw the
-// fraction badly for one artefact.
+//
+// The reported size is the server's Content-Length, or zero when it does not give
+// one. It is a claim, and it is only ever used to draw a bar — the size limit is
+// enforced on the way through, on the bytes themselves, precisely because this
+// header cannot be trusted. The worst a lie does here is draw the fraction badly
+// for one artefact.
 func (f *Fetcher) open(ctx context.Context, base, name string) (io.ReadCloser, int64, error) {
 	target, err := releaseURL(base, name)
 	if err != nil {
@@ -293,7 +293,7 @@ func (f *Fetcher) report(version, name string, index, total int, done, size int6
 
 // progressReader counts bytes on their way past.
 //
-// **It reports on a threshold rather than on every read**, because a copy makes
+// It reports on a threshold rather than on every read, because a copy makes
 // thousands of them and each report takes a lock the front door also takes to
 // render. A quarter of a megabyte is far finer than anything a person can see
 // move and coarse enough to cost nothing.
@@ -337,8 +337,8 @@ func (f *Fetcher) log(format string, args ...any) {
 // refuseInsecureRedirect stops a release download being redirected off HTTPS.
 //
 // GitHub redirects release assets to a CDN, so redirects are ordinary here and
-// cannot simply be refused — what must be refused is the *downgrade*, which is
-// how a fetch stops being private without anybody choosing it.
+// cannot simply be refused. What must be refused is the downgrade, which is how
+// a fetch stops being private without anybody choosing it.
 func refuseInsecureRedirect(req *http.Request, via []*http.Request) error {
 	if req.URL.Scheme != "https" {
 		return fmt.Errorf("%w: redirected to %s", ErrInsecureRelease, req.URL.Scheme)
@@ -360,7 +360,7 @@ func releaseURL(base, name string) (string, error) {
 		return "", fmt.Errorf("%w: %s", ErrInsecureRelease, base)
 	}
 	// The name comes from a release catalogue, which is remote input, and it is
-	// appended to a URL and used as a file name. A `..` in it would fetch
+	// appended to a URL and used as a file name. A ".." in it would fetch
 	// something outside the release and write it outside the generation.
 	if name == "" || name != path.Base(name) || strings.ContainsAny(name, `/\`) {
 		return "", fmt.Errorf("supervisor: %q is not a usable artefact name", name)

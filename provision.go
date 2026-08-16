@@ -13,24 +13,21 @@ import (
 
 // Giving the update machinery a caller.
 //
-// [Fetcher.Fetch], [Activator.Activate] and [Updater.Upgrade] were built,
-// tested and reachable from Go and from nowhere else — no code path in the
-// binary constructed any of them. So an install could not provision itself, the
-// `provisioning` and `upgrading` phases were never reported by anything, and the
-// progress bar every renderer draws had nothing to draw.
+// This is the composition that puts [Fetcher.Fetch], [Activator.Activate] and
+// [Updater.Upgrade] on a code path the binary reaches: a Supervisor that boots
+// onto the Generation it already has, and fetches one when it has none. Without
+// it nothing constructs them, so an install cannot provision itself and the
+// provisioning and upgrading phases are never reported by anything.
 //
-// This is the composition that closes that: a Supervisor that boots onto the
-// Generation it already has, and fetches one when it has none.
-//
-// **What it deliberately does not add is a schedule.** Nothing polls the
-// catalogue and nothing upgrades an install that is already running. Whether an
-// install updates itself unattended is a product decision, and the mechanism
-// existing is not a reason to make it here.
+// What it deliberately does not add is a schedule. Nothing polls the catalogue
+// and nothing upgrades an install that is already running. Whether an install
+// updates itself unattended is a product decision, and the mechanism existing is
+// not a reason to make it here.
 
 // ProvisionTargets is what a Generation must contain to be worth activating.
 //
 // The binaries are named here rather than in the release, because what an
-// install runs is a property of *this* Supervisor: a release that named its own
+// install runs is a property of this Supervisor: a release that named its own
 // binaries could name a different one and be obeyed, which is a supply-chain
 // decision dressed up as a manifest field.
 var ProvisionTargets = []ActivationTarget{
@@ -38,12 +35,11 @@ var ProvisionTargets = []ActivationTarget{
 	{Child: ShellChildName, Binary: "mosaic-shell"},
 }
 
-// **There is no artefact list here.** The Updater derives one from the targets
-// above through ReleaseArtefactName, which is the single place the mapping from
-// a binary to its per-host release file name lives. A second list beside this
-// one was written and deleted within the hour: it named the binaries without
-// their `-linux-amd64` suffix, agreed with itself in a test, and would have
-// been noticed only by a fetch 404ing — which is exactly how it was noticed.
+// There is no artefact list here, and adding one would be a mistake. The Updater
+// derives its list from the targets above through ReleaseArtefactName, which is
+// the single place the mapping from a binary to its per-host release file name
+// lives. A second list can only agree with itself and with a test written beside
+// it; the first sign it disagreed with the real one would be a fetch 404ing.
 
 // Provisioner owns the Generations an install holds and the machinery to
 // acquire one.
@@ -68,9 +64,9 @@ type Provisioner struct {
 // ErrNoReleaseSource is the refusal when there is nothing on disk and nowhere
 // configured to get anything from.
 //
-// **It is an error rather than a silent wait**, because the two look identical
-// from outside — a box showing "starting" forever — and only one of them is
-// something a person can act on.
+// It is an error rather than a silent wait, because the two look identical from
+// outside — a box showing "starting" forever — and only one of them is something
+// a person can act on.
 var ErrNoReleaseSource = errors.New("supervisor: no generation on disk and no release catalogue configured")
 
 // OpenProvisioner builds the whole chain from configuration, or reports why it
@@ -96,11 +92,11 @@ func OpenProvisioner(cfg Config, manager *Manager, activity *Activity, spool *Sp
 		return nil, err
 	}
 	if keys.Empty() {
-		// **A build with no trusted key cannot provision, and says so at boot
-		// rather than at the moment somebody needs it.** This is the shipped
-		// state today: no release key exists yet (platform#76), so a release
-		// binary carries an empty one. Refusing here would mean refusing to
-		// start, which is worse — an install with binaries on disk works fine.
+		// A build with no trusted key cannot provision, and says so at boot
+		// rather than at the moment somebody needs it. That is the shipped state
+		// today: no release key exists yet (platform#76), so a release binary
+		// carries an empty one. Refusing here would mean refusing to start,
+		// which is worse — an install with binaries on disk works fine.
 		tel.Warn(componentGeneration, "no trusted release key is compiled in, "+
 			"so this install cannot fetch or verify a release")
 		return p, nil
@@ -143,10 +139,10 @@ func (p *Provisioner) CommandFor(child string) []string {
 
 // EnsureGeneration acquires one if this install has none.
 //
-// **Only when there is none.** An install that already has a Generation boots
-// onto it and is left alone: fetching on every boot would make a restart into
-// an upgrade, which is the behaviour nobody asks for and everybody notices —
-// a machine that came back on a different version because it was power-cycled.
+// Only when there is none. An install that already has a Generation boots onto
+// it and is left alone: fetching on every boot would turn a restart into an
+// upgrade, so a machine would come back on a different version because it was
+// power-cycled.
 //
 // It returns an error rather than failing the boot. A Supervisor that cannot
 // provision must still run, because the front door is what tells somebody why

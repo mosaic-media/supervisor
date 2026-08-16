@@ -108,11 +108,11 @@ func TestFetchVerifiesAndCompletesAGeneration(t *testing.T) {
 	}
 }
 
-// **The load-bearing test.** One tampered artefact must discard the whole
-// staging directory, not just itself. Half a Generation is the most dangerous
-// state available: every file in it is individually genuine, so nothing looks
-// wrong, and the completeness marker is the only thing that would have caught
-// it.
+// TestOneBadArtefactDiscardsTheWholeGeneration is the load-bearing test. One
+// tampered artefact must discard the whole staging directory, not just itself.
+// Half a Generation is the most dangerous state available: every file in it is
+// individually genuine, so nothing looks wrong, and the completeness marker is
+// the only thing that would catch it.
 func TestOneBadArtefactDiscardsTheWholeGeneration(t *testing.T) {
 	r := newFakeRelease(t, map[string]string{
 		"mosaic-platform-linux-amd64": "platform bytes",
@@ -179,10 +179,10 @@ func TestAMissingArtefactIsReportedAsMissing(t *testing.T) {
 	}
 }
 
-// **HTTPS only, and no downgrade on a redirect.** The signature protects the
-// bytes, but plain HTTP lets anything on the path see and change what is
-// fetched before it is checked — and a redirect is how that happens without
-// anybody choosing it.
+// HTTPS only, and no downgrade on a redirect. The signature protects the bytes,
+// but plain HTTP lets anything on the path see and change what is fetched before
+// it is checked — and a redirect is how that happens without anybody choosing
+// it.
 func TestPlainHTTPIsRefused(t *testing.T) {
 	f := &Fetcher{Generations: generations(t), Keys: &Keyring{}}
 	_, err := releaseURL("http://example.invalid/release", checksumsName)

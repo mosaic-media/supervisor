@@ -13,24 +13,22 @@ import (
 
 // Discovering a release and upgrading to it.
 //
-// This is the piece that composes the two that already existed and did nothing
-// on their own: [Fetcher.Fetch] brings a Generation down and verifies it, and
-// [Activator.Activate] puts it into service and reverts if it does not serve.
-// Neither had a caller, and nothing knew a release existed.
+// This composes the two halves: [Fetcher.Fetch] brings a Generation down and
+// verifies it, and [Activator.Activate] puts it into service and reverts if it
+// does not serve.
 //
-// **The catalogue is signed, and that is not the same signature as the
-// artefacts'.** SHA256SUMS is signed so the bytes cannot be swapped; the index
-// is signed so the *choice of version* cannot be. Without the second, a host
-// that serves the release can pin an install to an old, genuinely-signed
-// release forever — a rollback attack, where every signature checks out and the
-// install never receives the fix it is waiting for. Home Assistant's updater
-// fetches its version document over plain HTTPS with no signature at all, which
-// is the specific thing the roadmap says not to copy.
+// The catalogue is signed, and that is not the same signature as the artefacts'.
+// SHA256SUMS is signed so the bytes cannot be swapped; the index is signed so the
+// choice of version cannot be. Without the second, a host that serves the release
+// can pin an install to an old, genuinely-signed release forever — a rollback
+// attack, where every signature checks out and the install never receives the fix
+// it is waiting for. Do not follow Home Assistant's updater here: it fetches its
+// version document over plain HTTPS with no signature at all.
 //
-// **Nothing here runs on a schedule.** Check and Upgrade are called; there is
-// no poll. A periodic check is a small addition on top and it needs a decision
-// this does not make — how often, and whether an install upgrades itself
-// unattended — which is a product question rather than a mechanism.
+// Nothing here runs on a schedule. Check and Upgrade are called; there is no
+// poll. A periodic check needs a decision this does not make — how often, and
+// whether an install upgrades itself unattended — which is a product question
+// rather than a mechanism.
 
 // ReleaseIndexSchema identifies the document, so a future format change is a
 // refusal rather than a misparse.
@@ -69,12 +67,12 @@ type ReleaseIndex struct {
 
 // Latest is the highest version the catalogue offers that this build can order.
 //
-// **It is computed rather than read from a `latest` field**, and the difference
-// is a real one: a field is a second statement of the same fact, and the two
-// disagreeing is a catalogue that offers one version and names another. An
-// entry this build cannot parse is skipped rather than failing the whole
-// catalogue — a future release using a versioning scheme this binary predates
-// must not stop it seeing the ones it does understand.
+// It is computed rather than read from a "latest" field: a field would be a
+// second statement of the same fact, and the two disagreeing is a catalogue that
+// offers one version and names another. An entry this build cannot parse is
+// skipped rather than failing the whole catalogue — a future release using a
+// versioning scheme this binary predates must not stop it seeing the ones it
+// does understand.
 func (i ReleaseIndex) Latest() (ReleaseEntry, bool) {
 	var best ReleaseEntry
 	for _, e := range i.Releases {
@@ -152,10 +150,10 @@ func (u *Updater) Check(ctx context.Context) (Available, error) {
 // Upgrade takes the latest release the catalogue offers, if it is newer than
 // what is running.
 //
-// **It refuses to move backwards**, which is the half of the rollback-attack
-// defence the signature cannot provide on its own: a signed catalogue that
-// offers only old versions is still a signed catalogue. Going back deliberately
-// is [Activator.Rollback] or [Updater.UpgradeTo], both of which are somebody
+// It refuses to move backwards, which is the half of the rollback-attack defence
+// the signature cannot provide on its own: a signed catalogue that offers only
+// old versions is still a signed catalogue. Going back deliberately is
+// [Activator.Rollback] or [Updater.UpgradeTo], both of which are somebody
 // choosing rather than an install deciding.
 func (u *Updater) Upgrade(ctx context.Context) (version string, err error) {
 	found, err := u.Check(ctx)
@@ -283,11 +281,10 @@ func (u *Updater) log(format string, args ...any) {
 // ReleaseArtefactName maps a binary's installed name to the name a release
 // publishes it under for this host.
 //
-// The release matrix produces `mosaic-platform-linux-amd64`; a Generation holds
-// `mosaic-platform`, because that is what the child spec execs and what a
-// person reading the directory expects. Doing the mapping in one exported
-// function keeps the target suffix out of every caller — and makes the one
-// place that has to change when a new target is added findable.
+// The release matrix produces mosaic-platform-linux-amd64; a Generation holds
+// mosaic-platform, because that is what the child spec execs and what a person
+// reading the directory expects. This is the single place that mapping lives, so
+// adding a new target changes one function rather than every caller.
 func ReleaseArtefactName(binary string) string {
 	name := fmt.Sprintf("%s-%s-%s", binary, hostOS, hostArch)
 	if hostOS == "windows" {

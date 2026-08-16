@@ -13,33 +13,26 @@ import (
 	"testing"
 )
 
-// The Supervisor must import nothing but the standard library and the
-// published SDUI contract.
+// The Supervisor must import nothing but the standard library and the three
+// modules named below.
 //
 // It must be able to run when the Platform cannot — that is the whole of
 // supervisor#2's degradation ladder — so a compile-time dependency on the Platform
-// would tie the process that stays up to the one that fell over, and would
-// make upgrading either mean upgrading both. This module was extracted from
-// the platform repository, where it was parked before this one existed; the
-// boundary held during that move (a `git subtree split` plus a push, no
-// import to rewrite) and this test is what makes sure it keeps holding now
-// that the two are separate repositories with separate release cycles.
+// would tie the process that stays up to the one that fell over, and would make
+// upgrading either mean upgrading both.
 //
-// **`contracts` is the one exception, decided by
-// [platform#76](https://github.com/mosaic-media/platform/blob/main/docs/adr/0076-the-signing-key-hierarchy.md)
-// and widened here rather than ahead of the emitter that needed it.** supervisor#2
+// contracts is the first exception, decided by supervisor#6 and widened here
+// rather than ahead of the emitter that needed it. supervisor#2
 // has the Supervisor emit Recovery SDUI, which every client — the Shell, a
 // native app, the embedded renderer — then draws. The alternative was a second
-// emit-side implementation of the wire format inside this module, which is the
-// mistake this project has already made once: ~30 components lived as
-// hand-written TypeScript in the web client while the contract carried four
-// stale copies, three had drifted, and nothing reported it.
+// emit-side implementation of the wire format inside this module, which is a
+// mistake this project has already made once and which nothing reported.
 //
-// The rule's stated purpose is unchanged. It exists so the process that has to
-// run when the Platform cannot carries no compile-time dependency **on the
-// Platform**, and a published contract module is not a running service. The
-// widening is exactly one module wide, and the Platform stays forbidden —
-// which is what the second half of this test asserts.
+// The rule's purpose is unchanged: the process that has to run when the Platform
+// cannot carries no compile-time dependency on the Platform, and a published
+// contract module is not a running service. Each widening is exactly one module
+// wide, and the Platform stays forbidden — which is what the second half of this
+// test asserts.
 func TestSupervisorImportsNothingButTheStandardLibrary(t *testing.T) {
 	root := moduleRoot(t)
 	fset := token.NewFileSet()
@@ -85,44 +78,41 @@ func TestSupervisorImportsNothingButTheStandardLibrary(t *testing.T) {
 	}
 }
 
-// The two non-standard dependencies this module may have.
+// The non-standard dependencies this module may have.
 //
-// **The second one adds no code to the binary that the first had not already
-// brought in.** `contracts` requires `connectrpc.com/connect` itself — it
-// generates the Connect handlers for both client-facing services — so this
-// widening moves a module from transitive to direct rather than admitting
-// anything new to the linked graph. That distinction is why supervisor#7 was
-// affordable: the rule counts direct imports because those are what a reader
-// can audit, but the property it protects is about what has to work when
+// connectrpc.com/connect adds no code to the binary that contracts had not
+// already brought in: contracts requires it itself — it generates the Connect
+// handlers for both client-facing services — so this widening moves a module
+// from transitive to direct rather than admitting anything new to the linked
+// graph. The rule counts direct imports because those are what a reader can
+// audit, while the property it protects is about what has to work when
 // everything else is broken, and that set is unchanged.
 //
-// It is needed because supervisor#7 has the Supervisor *answer* the Platform's own
+// It is needed because supervisor#7 has the Supervisor answer the Platform's own
 // client surface while the Platform is down, so a client has one SDUI source
 // rather than two. Implementing the generated handler interfaces means naming
-// `connect.Request` and `connect.ServerStream`.
+// connect.Request and connect.ServerStream.
 const (
 	contractsModule = "github.com/mosaic-media/contracts"
 	connectModule   = "connectrpc.com/connect"
-	// OpenTelemetry, admitted by sdk#8. The Supervisor takes the *SDK* here
-	// rather than the API a module gets, because it is a binary and something
-	// has to wire the pipeline — but it exports to a **file** and never over
-	// OTLP, which is precisely supervisor#5's objection honoured rather than
-	// overruled: that record rejected an exporter needing a running collector,
-	// and nothing admitted here dials, resolves or waits on anything.
+	// OpenTelemetry, admitted by sdk#8. The Supervisor takes the SDK here rather
+	// than the API a module gets, because it is a binary and something has to
+	// wire the pipeline.
 	//
-	// It is what ended the third hand-written copy of Mosaic's telemetry. The
-	// duplication it replaced was a record format shared with the Platform by
-	// convention, guarded by a test naming its JSON keys — the open question
-	// supervisor#5's own Consequences left.
+	// supervisor#5 rejected an exporter that needs a running collector, and that
+	// is honoured by what the pipeline is allowed to depend on rather than by
+	// the module list: the file exporter is unconditional, an OTLP exporter is
+	// added only when an operator configures an endpoint, and nothing admitted
+	// here may dial, resolve or wait on anything before the process is serving.
 	otelModule = "go.opentelemetry.io/otel"
 )
 
 // allowedNonStandard reports whether an import is one of the permitted three.
 //
-// Matched on the module paths and their subpackages, and on nothing else — in
-// particular **not** on a prefix like `github.com/mosaic-media/`, which would
-// silently admit the Platform, the SDK and every module repository. The
-// widening is three modules wide and the test is what keeps it that way.
+// Matched on the module paths and their subpackages, and on nothing else — never
+// on a prefix like github.com/mosaic-media/, which would silently admit the
+// Platform, the SDK and every module repository. The widening is three modules
+// wide and this is what keeps it that way.
 func allowedNonStandard(importPath string) bool {
 	for _, m := range []string{contractsModule, connectModule, otelModule} {
 		if importPath == m || strings.HasPrefix(importPath, m+"/") {
@@ -137,7 +127,7 @@ func allowedNonStandard(importPath string) bool {
 //
 // It is a separate test because the one above walks this module's files and
 // would pass on a day nobody imported the Platform, which is every day until
-// somebody does. This asserts the *rule*, so a helper rewritten to match a
+// somebody does. This asserts the rule, so a helper rewritten to match a
 // prefix — the obvious way to allow a second Mosaic module later — fails here
 // rather than at the moment it matters.
 func TestThePlatformStaysForbidden(t *testing.T) {
@@ -148,10 +138,10 @@ func TestThePlatformStaysForbidden(t *testing.T) {
 		"github.com/mosaic-media/sdk/contracts/platform/v1",
 		"github.com/mosaic-media/module-tmdb",
 		"github.com/mosaic-media/contractsfoo",
-		// Neither of the two is a licence for its neighbours. `connectrpc.com`
+		// None of the three is a licence for its neighbours. connectrpc.com
 		// hosts more than one module, and grpc arrives in this build graph
 		// through the contract already — admitting either by prefix would turn
-		// a stated two into "whatever resolves".
+		// a stated three into "whatever resolves".
 		"connectrpc.com/grpcreflect",
 		"connectrpc.com/connectfoo",
 		"google.golang.org/grpc",
