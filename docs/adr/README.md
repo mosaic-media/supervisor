@@ -16,6 +16,7 @@ A record is cited from another repository as `supervisor#N`, written as a link t
 | 8 | [The Platform and the Shell are resolved independently and paired by contract major](0008-artefacts-are-paired-by-contract-major.md) | Proposed and partly superseded: the pairing shape stands, and the component it reads was corrected by [supervisor#12](0012-upgrade-automation-is-staged-against-the-contract-version.md) — pre-1.0 it is the contract minor, not the major. |
 | 12 | [Upgrade automation is staged against the contract version, never the artefact's](0012-upgrade-automation-is-staged-against-the-contract-version.md) | Proposed. |
 | 13 | [The Supervisor takes the backup, and the Platform contributes its half](0013-the-supervisor-takes-the-backup.md) | Accepted. Not built. |
+| 14 | [A Generation carries its selection, and a screen asks for a change](0014-a-generation-carries-its-selection.md) | Accepted. Not built. |
 
 ## Records this repository depends on
 
@@ -46,6 +47,7 @@ Decisions held elsewhere that these records cite. They bind work here and are no
 - [platform#51](https://github.com/mosaic-media/platform/blob/main/docs/adr/0051-extension-installation-is-user-initiated-and-persistent.md)
 - [platform#58](https://github.com/mosaic-media/platform/blob/main/docs/adr/0058-the-session-credential-is-a-bearer-pair.md)
 - [platform#74](https://github.com/mosaic-media/platform/blob/main/docs/adr/0074-operational-findings-are-durable-state.md)
+- [platform#75](https://github.com/mosaic-media/platform/blob/main/docs/adr/0075-the-children-listen-on-unix-sockets.md)
 - [platform#76](https://github.com/mosaic-media/platform/blob/main/docs/adr/0076-the-signing-key-hierarchy.md)
 - [platform#78](https://github.com/mosaic-media/platform/blob/main/docs/adr/0078-passkeys-are-an-optional-layer-on-a-public-origin.md)
 - [platform#92](https://github.com/mosaic-media/platform/blob/main/docs/adr/0092-module-storage-is-granted-not-enforced.md)
