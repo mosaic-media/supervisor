@@ -15,6 +15,7 @@ A record is cited from another repository as `supervisor#N`, written as a link t
 | 7 | [The Supervisor answers the Platform's client surface when the Platform is absent](0007-the-supervisor-answers-the-platforms-client-surface.md) | Built. The front door switches, both services are answered, and the Shell needed no code for it. |
 | 8 | [The Platform and the Shell are resolved independently and paired by contract major](0008-artefacts-are-paired-by-contract-major.md) | Proposed and partly superseded: the pairing shape stands, and the component it reads was corrected by [supervisor#12](0012-upgrade-automation-is-staged-against-the-contract-version.md) — pre-1.0 it is the contract minor, not the major. |
 | 12 | [Upgrade automation is staged against the contract version, never the artefact's](0012-upgrade-automation-is-staged-against-the-contract-version.md) | Proposed. |
+| 13 | [The Supervisor takes the backup, and the Platform contributes its half](0013-the-supervisor-takes-the-backup.md) | Accepted. Not built. |
 
 ## Records this repository depends on
 
@@ -29,6 +30,7 @@ Decisions held elsewhere that these records cite. They bind work here and are no
 
 **`platform`**
 
+- [platform#2](https://github.com/mosaic-media/platform/blob/main/docs/adr/0002-module-storage-and-delivery-model.md)
 - [platform#4](https://github.com/mosaic-media/platform/blob/main/docs/adr/0004-static-go-module-composition.md)
 - [platform#7](https://github.com/mosaic-media/platform/blob/main/docs/adr/0007-platform-transports-events.md)
 - [platform#22](https://github.com/mosaic-media/platform/blob/main/docs/adr/0022-live-session-websocket.md)
@@ -45,6 +47,8 @@ Decisions held elsewhere that these records cite. They bind work here and are no
 - [platform#58](https://github.com/mosaic-media/platform/blob/main/docs/adr/0058-the-session-credential-is-a-bearer-pair.md)
 - [platform#74](https://github.com/mosaic-media/platform/blob/main/docs/adr/0074-operational-findings-are-durable-state.md)
 - [platform#76](https://github.com/mosaic-media/platform/blob/main/docs/adr/0076-the-signing-key-hierarchy.md)
+- [platform#78](https://github.com/mosaic-media/platform/blob/main/docs/adr/0078-passkeys-are-an-optional-layer-on-a-public-origin.md)
+- [platform#92](https://github.com/mosaic-media/platform/blob/main/docs/adr/0092-module-storage-is-granted-not-enforced.md)
 
 **`sdk`**
 
