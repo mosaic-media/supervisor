@@ -13,10 +13,11 @@ A record is cited from another repository as `supervisor#N`, written as a link t
 | 5 | [The Supervisor observes independently](0005-the-supervisor-observes-independently.md) | Built in part — the writing, not the reading. |
 | 6 | [Two supervised images, a DIY path, and the Supervisor's own contract dependency](0006-two-supervised-images-and-a-diy-path.md) | Built in part, and partly superseded: the import boundary was widened again by [supervisor#7](0007-the-supervisor-answers-the-platforms-client-surface.md); |
 | 7 | [The Supervisor answers the Platform's client surface when the Platform is absent](0007-the-supervisor-answers-the-platforms-client-surface.md) | Built. The front door switches, both services are answered, and the Shell needed no code for it. |
-| 8 | [The Platform and the Shell are resolved independently and paired by contract major](0008-artefacts-are-paired-by-contract-major.md) | Proposed and partly superseded: the pairing shape stands, and the component it reads was corrected by [supervisor#12](0012-upgrade-automation-is-staged-against-the-contract-version.md) — pre-1.0 it is the contract minor, not the major. |
-| 12 | [Upgrade automation is staged against the contract version, never the artefact's](0012-upgrade-automation-is-staged-against-the-contract-version.md) | Proposed. |
+| 8 | [The Platform and the Shell are resolved independently and paired by contract major](0008-artefacts-are-paired-by-contract-major.md) | Accepted and partly superseded: the pairing shape stands, and the component it reads was corrected by [supervisor#12](0012-upgrade-automation-is-staged-against-the-contract-version.md) — pre-1.0 it is the contract minor, not the major. |
+| 12 | [Upgrade automation is staged against the contract version, never the artefact's](0012-upgrade-automation-is-staged-against-the-contract-version.md) | Accepted. |
 | 13 | [The Supervisor takes the backup, and the Platform contributes its half](0013-the-supervisor-takes-the-backup.md) | Accepted. Not built. |
 | 14 | [A Generation carries its selection, and a screen asks for a change](0014-a-generation-carries-its-selection.md) | Accepted. Not built. |
+| 15 | [Activate is the only verb, and a version panel is where it happens](0015-activate-is-the-only-verb.md) | Accepted. Not built. Discharges the rollback debt architecture/docs/unreachable-capability.md records as owed. |
 
 ## Records this repository depends on
 
@@ -49,6 +50,7 @@ Decisions held elsewhere that these records cite. They bind work here and are no
 - [platform#74](https://github.com/mosaic-media/platform/blob/main/docs/adr/0074-operational-findings-are-durable-state.md)
 - [platform#75](https://github.com/mosaic-media/platform/blob/main/docs/adr/0075-the-children-listen-on-unix-sockets.md)
 - [platform#76](https://github.com/mosaic-media/platform/blob/main/docs/adr/0076-the-signing-key-hierarchy.md)
+- [platform#77](https://github.com/mosaic-media/platform/blob/main/docs/adr/0077-the-upgrade-channel-is-the-handoff-and-the-register.md)
 - [platform#78](https://github.com/mosaic-media/platform/blob/main/docs/adr/0078-passkeys-are-an-optional-layer-on-a-public-origin.md)
 - [platform#92](https://github.com/mosaic-media/platform/blob/main/docs/adr/0092-module-storage-is-granted-not-enforced.md)
 
