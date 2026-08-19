@@ -49,6 +49,14 @@ class Record:
     filename: str
 
 
+# The first word of a Status says whether the record is agreed, and nothing else
+# (architecture#5). Built-ness is the other axis and is said separately in prose,
+# because a record is commonly half built and no keyword carries "the producing
+# half exists and the consuming half does not". A "Built" status conflated the
+# two: eleven records carried it, and every one of them was also agreed.
+AGREEMENT_WORDS = frozenset({"Proposed", "Accepted", "Superseded"})
+
+
 def status_summary(text: str, limit: int = 140) -> str:
     """The Status line's first sentence, as plain text.
 
@@ -111,6 +119,13 @@ def read_record(path: Path) -> Record:
             status.append(line)
     if not status:
         raise SystemExit(f"{path}: no **Status:** line")
+    first = status[0].strip().split()[0].rstrip(".,;:") if status[0].strip() else ""
+    if first not in AGREEMENT_WORDS:
+        raise SystemExit(
+            f"{path}: Status starts with {first!r}; it must start with one of "
+            f"{', '.join(sorted(AGREEMENT_WORDS))} (architecture#5). Whether a "
+            f"record is built is said separately in the same line, in prose."
+        )
 
     m = re.match(r"^(\d+)-", path.name)
     if not m:

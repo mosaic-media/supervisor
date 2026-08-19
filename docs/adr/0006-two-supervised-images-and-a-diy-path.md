@@ -1,6 +1,6 @@
 # Two supervised images, a DIY path, and the Supervisor's own contract dependency
 
-**Status:** Built in part, and partly superseded: the import boundary was widened again by [supervisor#7](0007-the-supervisor-answers-the-platforms-client-surface.md); the rest stands. The contract dependency, the emitter it was for and both images are built; onboarding's module step is not.
+**Status:** Accepted. Built in part, and partly superseded: the import boundary was widened again by [supervisor#7](0007-the-supervisor-answers-the-platforms-client-surface.md); the rest stands. The contract dependency, the emitter it was for and both images are built; onboarding's module step is not.
 **Date:** 2026-08-09
 
 Amends [platform#50](https://github.com/mosaic-media/platform/blob/main/docs/adr/0050-deployment-topologies.md)'s topology table (the supervised

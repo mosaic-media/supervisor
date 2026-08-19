@@ -3,7 +3,7 @@
 # The source of truth is the architecture repository.
 """Refuse a decision-record citation that cannot be resolved.
 
-Three rules, and the first is the one this exists for:
+Four rules, and the first is the one this exists for:
 
 1. **A citation must name its repository.** ``ADR 0012`` is refused; a record
    is cited as ``platform#12``. Once every repository numbers from 1, the bare
